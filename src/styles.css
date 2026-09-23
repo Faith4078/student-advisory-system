@@ -261,7 +261,7 @@ input { font:inherit; }
 .sidebar-guide strong { display:block; margin-top:13px; font-size:.82rem; }
 .sidebar-guide p { margin:7px 0 14px; color:#788397; font-size:.68rem; line-height:1.5; }
 .sidebar-guide button { display:flex; align-items:center; gap:5px; padding:0; border:0; color:#146ef5; background:transparent; font-size:.69rem; font-weight:800; }
-.sidebar-logout { justify-content:center; margin-top:15px; border:1px solid #ffd7df; color:#b13650; background:#fff5f7; }
+.dashboard-nav .sidebar-logout { justify-content:flex-start; margin-top:4px; border:1px solid #ffd7df; color:#b13650; background:#fff5f7; }
 .sidebar-logout:hover { color:#fff; background:#b13650; border-color:#b13650; }
 .dashboard-main { min-height:100vh; margin-left:252px; }
 .dashboard-topbar { height:77px; display:flex; align-items:center; justify-content:space-between; gap:24px; padding:0 34px; border-bottom:1px solid #e4e8f0; background:rgba(255,255,255,.92); backdrop-filter:blur(12px); }
