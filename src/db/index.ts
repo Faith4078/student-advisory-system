@@ -3,8 +3,8 @@ import postgres from "postgres";
 import * as schema from "./schema";
 
 const connectionString =
-	process.env.DATABASE_URL_POOLED ??
-	process.env.DATABASE_URL ??
+	process.env.DATABASE_URL_POOLED ||
+	process.env.DATABASE_URL ||
 	"postgres://invalid:invalid@127.0.0.1:5432/student_advisory";
 
 const client = postgres(connectionString, {

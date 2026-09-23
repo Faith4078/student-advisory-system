@@ -3,6 +3,7 @@ import { ArrowRight, LoaderCircle } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { AuthShell } from "../components/auth-shell";
+import { AUTH_TOAST_KEY } from "../components/auth-toast-bridge";
 import { PasswordField } from "../components/password-field";
 import { authClient } from "../lib/auth-client";
 import { getSession } from "../lib/auth.functions";
@@ -42,7 +43,7 @@ function SignInPage() {
 				return;
 			}
 
-			toast.success("Welcome back!");
+			sessionStorage.setItem(AUTH_TOAST_KEY, "Welcome back!");
 			globalThis.location.assign(destination);
 		} catch {
 			toast.error("We couldn't reach the server. Please try again.");

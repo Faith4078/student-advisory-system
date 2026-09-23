@@ -7,6 +7,7 @@ import {
 } from "@tanstack/react-router";
 import { TanStackRouterDevtoolsPanel } from "@tanstack/react-router-devtools";
 import { Toaster } from "sonner";
+import { AuthToastBridge } from "../components/auth-toast-bridge";
 import TanStackQueryDevtools from "../integrations/tanstack-query/devtools";
 import appCss from "../styles.css?url";
 
@@ -55,6 +56,7 @@ function RootDocument({ children }: { children: React.ReactNode }) {
 			</head>
 			<body>
 				{children}
+				<AuthToastBridge />
 				<Toaster position="top-right" richColors closeButton />
 				<TanStackDevtools
 					config={{
