@@ -1,12 +1,26 @@
-Welcome to your new TanStack Start app!
+# Thesisly
+
+Student project advisory workspace built with TanStack Start, Better Auth, Drizzle ORM, and PostgreSQL.
 
 # Getting Started
 
-To run this application:
+1. Copy `.env.local.example` to `.env` and set a secure `BETTER_AUTH_SECRET` plus your PostgreSQL connection string.
+2. Install packages and apply the generated Drizzle migration.
+3. Start the development server.
 
 ```bash
 pnpm install
+pnpm db:migrate
 pnpm dev
+```
+
+Authentication uses the student's real school email for the Better Auth email identity and a matric number in the `CSC/2019/061` format as the username credential. Students sign in with their matric number and password.
+
+When the Better Auth configuration changes, regenerate its Drizzle schema and create a migration:
+
+```bash
+pnpm auth:generate
+pnpm db:generate
 ```
 
 # Building For Production

@@ -1,4 +1,4 @@
-import { createFileRoute } from "@tanstack/react-router";
+import { createFileRoute, Link } from "@tanstack/react-router";
 import {
 	ArrowRight,
 	BookOpen,
@@ -98,9 +98,10 @@ function Home() {
 						<a href="#how-it-works">How it works</a>
 						<a href="#disciplines">Disciplines</a>
 						<a href="#stories">Example outcome</a>
-						<button className="nav-cta" type="button" onClick={scrollToStarter}>
-							Find my topic <ArrowRight size={16} />
-						</button>
+						<Link to="/signin" search={{ redirect: "/dashboard" }}>Sign in</Link>
+						<Link className="nav-cta" to="/signup">
+							Get started <ArrowRight size={16} />
+						</Link>
 					</nav>
 					<button
 						className="menu-toggle"
