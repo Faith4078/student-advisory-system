@@ -96,7 +96,9 @@ function DashboardPage() {
 					<p>We’ll help you take one clear step at a time.</p>
 					<button type="button">Ask for guidance <ArrowRight size={15} /></button>
 				</div>
-				<button className="sidebar-logout" type="button" onClick={signOut}><LogOut size={18} /> Sign out</button>
+				<button className="sidebar-logout" type="button" onClick={signOut}>
+					<LogOut size={18} /> Logout
+				</button>
 			</aside>
 
 			<section className="dashboard-main">
