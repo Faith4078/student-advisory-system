@@ -13,6 +13,7 @@ import {
 	GraduationCap,
 	LayoutDashboard,
 	Lightbulb,
+	KeyRound,
 	LogOut,
 	Menu,
 	MessageSquareText,
@@ -89,6 +90,7 @@ function DashboardPage() {
 					<p>Account</p>
 					<button type="button"><UserRound size={18} /> Profile</button>
 					<button type="button"><Settings size={18} /> Settings</button>
+					<Link to="/recovery-code"><KeyRound size={18} /> Recovery code</Link>
 					<button className="sidebar-logout" type="button" onClick={signOut}>
 						<LogOut size={18} /> Logout
 					</button>

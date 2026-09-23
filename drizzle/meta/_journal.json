@@ -8,6 +8,13 @@
       "when": 1790136776536,
       "tag": "0000_careless_rictor",
       "breakpoints": true
+    },
+    {
+      "idx": 1,
+      "version": "7",
+      "when": 1790141519434,
+      "tag": "0001_smooth_redwing",
+      "breakpoints": true
     }
   ]
 }

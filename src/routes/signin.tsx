@@ -56,6 +56,8 @@ function SignInPage() {
 		<AuthShell
 			title="Welcome back"
 			description="Sign in with your matric number to continue your project journey."
+			showJourneyTag={false}
+			showTrustMessage={false}
 		>
 			<form className="auth-form" onSubmit={handleSubmit}>
 				<div className="form-field">
@@ -71,7 +73,10 @@ function SignInPage() {
 					/>
 				</div>
 				<div className="form-field">
-					<label htmlFor="password">Password</label>
+					<div className="auth-password-heading">
+						<label htmlFor="password">Password</label>
+						<Link to="/forgot-password">Forgot password?</Link>
+					</div>
 					<PasswordField
 						value={password}
 						onChange={setPassword}

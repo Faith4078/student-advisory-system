@@ -5,11 +5,10 @@ import { username } from "better-auth/plugins";
 import { tanstackStartCookies } from "better-auth/tanstack-start";
 import { db } from "../db";
 import * as schema from "../db/schema";
-
-export const PASSWORD_REQUIREMENTS =
-	/^(?=.*[a-z])(?=.*[A-Z])(?=.*\d)(?=.*[^A-Za-z0-9])\S{8,128}$/;
-
-export const MATRIC_NUMBER_PATTERN = /^[A-Za-z]{3}\/\d{4}\/\d{3}$/;
+import {
+	MATRIC_NUMBER_PATTERN,
+	PASSWORD_REQUIREMENTS,
+} from "./auth-validation";
 
 export const auth = betterAuth({
 	database: drizzleAdapter(db, {

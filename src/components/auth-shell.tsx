@@ -5,10 +5,14 @@ import type { ReactNode } from "react";
 export function AuthShell({
 	title,
 	description,
+	showJourneyTag = true,
+	showTrustMessage = true,
 	children,
 }: {
 	title: string;
 	description: string;
+	showJourneyTag?: boolean;
+	showTrustMessage?: boolean;
 	children: ReactNode;
 }) {
 	return (
@@ -21,22 +25,28 @@ export function AuthShell({
 					<span>thesisly</span>
 				</Link>
 				<div className="auth-story-copy">
-					<span className="auth-kicker">
-						<Sparkles size={15} /> Built for your final-year journey
-					</span>
+					{showJourneyTag ? (
+						<span className="auth-kicker">
+							<Sparkles size={15} /> Built for your final-year journey
+						</span>
+					) : null}
 					<h2>Move from a broad idea to a project you can defend.</h2>
 					<p>
 						Keep your research direction, milestones, advisor feedback, and
 						next steps together in one calm workspace.
 					</p>
 				</div>
-				<div className="auth-trust">
-					<ShieldCheck size={20} />
-					<div>
-						<strong>Your school identity stays yours.</strong>
-						<span>We store the school email you provide—never a made-up one.</span>
+				{showTrustMessage ? (
+					<div className="auth-trust">
+						<ShieldCheck size={20} />
+						<div>
+							<strong>Your school identity stays yours.</strong>
+							<span>
+								We store the school email you provide—never a made-up one.
+							</span>
+						</div>
 					</div>
-				</div>
+				) : null}
 			</section>
 
 			<section className="auth-panel">

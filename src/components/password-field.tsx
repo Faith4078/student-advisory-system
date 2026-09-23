@@ -6,19 +6,23 @@ export function PasswordField({
 	onChange,
 	autoComplete,
 	describedBy,
+	id = "password",
+	name = "password",
 }: {
 	value: string;
 	onChange: (value: string) => void;
 	autoComplete: "current-password" | "new-password";
 	describedBy?: string;
+	id?: string;
+	name?: string;
 }) {
 	const [visible, setVisible] = useState(false);
 
 	return (
 		<div className="password-input-wrap">
 			<input
-				id="password"
-				name="password"
+				id={id}
+				name={name}
 				type={visible ? "text" : "password"}
 				autoComplete={autoComplete}
 				value={value}

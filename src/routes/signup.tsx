@@ -1,22 +1,15 @@
 import { createFileRoute, Link, redirect } from "@tanstack/react-router";
+import { useServerFn } from "@tanstack/react-start";
 import { ArrowRight, Check, LoaderCircle } from "lucide-react";
 import { useState, type FormEvent } from "react";
 import { toast } from "sonner";
 import { AuthShell } from "../components/auth-shell";
 import { PasswordField } from "../components/password-field";
+import { RecoveryCodeCard } from "../components/recovery-code-card";
 import { authClient } from "../lib/auth-client";
+import { PASSWORD_RULES } from "../lib/auth-validation";
 import { getSession } from "../lib/auth.functions";
-
-const PASSWORD_RULES = [
-	{ label: "8 or more characters", test: (value: string) => value.length >= 8 },
-	{ label: "An uppercase letter", test: (value: string) => /[A-Z]/.test(value) },
-	{ label: "A lowercase letter", test: (value: string) => /[a-z]/.test(value) },
-	{ label: "A number", test: (value: string) => /\d/.test(value) },
-	{
-		label: "A special character",
-		test: (value: string) => /[^A-Za-z0-9]/.test(value),
-	},
-];
+import { createRecoveryCode } from "../lib/recovery.functions";
 
 export const Route = createFileRoute("/signup")({
 	beforeLoad: async () => {
@@ -27,8 +20,10 @@ export const Route = createFileRoute("/signup")({
 
 function SignUpPage() {
 	const navigate = Route.useNavigate();
+	const generateRecoveryCode = useServerFn(createRecoveryCode);
 	const [pending, setPending] = useState(false);
 	const [password, setPassword] = useState("");
+	const [recoveryCode, setRecoveryCode] = useState("");
 
 	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -64,13 +59,38 @@ function SignUpPage() {
 				return;
 			}
 
-			toast.success("Account created. Welcome to Thesisly!");
-			await navigate({ to: "/dashboard" });
+			try {
+				const generated = await generateRecoveryCode();
+				setRecoveryCode(generated.recoveryCode);
+				toast.success("Account created. Save your recovery code.");
+			} catch {
+				toast.warning(
+					"Account created, but a recovery code could not be generated. You can create one from the dashboard.",
+				);
+				await navigate({ to: "/dashboard" });
+			}
 		} catch {
 			toast.error("We couldn't reach the server. Please try again.");
 		} finally {
 			setPending(false);
 		}
+	}
+
+	if (recoveryCode) {
+		return (
+			<AuthShell
+				title="Your account is ready"
+				description="Save your recovery code before continuing."
+				showJourneyTag={false}
+				showTrustMessage={false}
+			>
+				<RecoveryCodeCard
+					recoveryCode={recoveryCode}
+					actionLabel="I saved it — continue"
+					onContinue={() => navigate({ to: "/dashboard" })}
+				/>
+			</AuthShell>
+		);
 	}
 
 	return (
