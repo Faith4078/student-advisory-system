@@ -15,6 +15,13 @@
       "when": 1790141519434,
       "tag": "0001_smooth_redwing",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1790172612442,
+      "tag": "0002_abnormal_captain_marvel",
+      "breakpoints": true
     }
   ]
 }
