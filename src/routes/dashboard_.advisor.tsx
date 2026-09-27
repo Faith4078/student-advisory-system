@@ -43,7 +43,7 @@ function normalizeSearch(search: Record<string, unknown>) {
 	return { chat: typeof search.chat === "string" ? search.chat : undefined };
 }
 
-export const Route = createFileRoute("/dashboard/advisor")({
+export const Route = createFileRoute("/dashboard_/advisor")({
 	validateSearch: normalizeSearch,
 	beforeLoad: async ({ location }) => {
 		const session = await getSession();
@@ -277,6 +277,14 @@ function AdvisorPage() {
 				</header>
 
 				<div className="advisor-shell">
+					<button
+						className={
+							chatListOpen ? "dashboard-scrim is-open" : "dashboard-scrim"
+						}
+						type="button"
+						onClick={() => setChatListOpen(false)}
+						aria-label="Close conversations"
+					/>
 					<aside
 						className={
 							chatListOpen ? "advisor-history is-open" : "advisor-history"

@@ -353,8 +353,8 @@ input { font:inherit; }
 
 /* AI Advisor */
 .advisor-main { background:#f5f7fb; }
-.advisor-shell { height:calc(100vh - 77px); display:grid; grid-template-columns:310px minmax(0,1fr); }
-.advisor-history { min-height:0; display:flex; flex-direction:column; border-right:1px solid #e0e6ef; background:#fff; }
+.advisor-shell { height:calc(100vh - 77px); display:grid; grid-template-columns:310px minmax(0,1fr); transition:grid-template-columns .2s ease; }
+.advisor-history { min-height:0; min-width:0; overflow:hidden; display:flex; flex-direction:column; border-right:1px solid #e0e6ef; background:#fff; transition:opacity .15s ease; }
 .advisor-history-head { display:flex; align-items:center; justify-content:space-between; gap:14px; min-height:86px; padding:0 18px; border-bottom:1px solid #edf0f4; }
 .advisor-history-head span,.advisor-chat-header span { color:#146ef5; font-size:.6rem; font-weight:800; letter-spacing:.13em; }
 .advisor-history-head h1,.advisor-chat-header h2 { margin-top:5px; font-size:1.05rem; letter-spacing:-.025em; }
@@ -398,11 +398,23 @@ input { font:inherit; }
 	.auth-page { grid-template-columns:380px 1fr; }.auth-story { padding-inline:34px; }.auth-story-copy h2 { font-size:2.7rem; }
 	.dashboard-progress-visual { gap:18px; padding-inline:20px; }.progress-steps { display:none; }
 }
+@media (max-width:1050px) {
+	.advisor-shell { grid-template-columns:260px minmax(0,1fr); }
+}
+@media (min-width:861px) {
+	.advisor-history.is-open { border-right:0; opacity:0; pointer-events:none; }
+	.advisor-shell:has(.advisor-history.is-open) { grid-template-columns:0 minmax(0,1fr); }
+}
 @media (max-width:860px) {
 	.auth-page { display:block; }.auth-story { display:none; }.auth-panel { display:block; min-height:100vh; padding:30px 22px 60px; }.auth-mobile-brand { display:block; margin-bottom:54px; }.auth-card { margin:0 auto; }
 	.dashboard-sidebar { transform:translateX(-100%); transition:transform .25s ease; box-shadow:20px 0 50px rgba(25,38,62,.16); }.dashboard-sidebar.is-open { transform:translateX(0); }.sidebar-close { display:grid; }.dashboard-scrim { position:fixed; z-index:25; inset:0; border:0; background:rgba(13,24,44,.4); opacity:0; pointer-events:none; transition:opacity .25s; }.dashboard-scrim.is-open { display:block; opacity:1; pointer-events:auto; }.dashboard-main { margin-left:0; }.mobile-sidebar-toggle { display:grid; place-items:center; }.dashboard-content { width:min(100% - 38px,900px); }.dashboard-topbar { padding-inline:20px; }.dashboard-search { width:min(420px,52vw); }
+	.advisor-shell { grid-template-columns:minmax(0,1fr); }
+	.advisor-history { position:fixed; z-index:26; inset:77px auto 0 0; width:min(300px,82vw); transform:translateX(-100%); transition:transform .25s ease; box-shadow:20px 0 50px rgba(25,38,62,.16); }
+	.advisor-history.is-open { transform:translateX(0); }
+	.advisor-chat-header>button { display:grid; }
 }
 @media (max-width:680px) {
 	.auth-mobile-brand { margin-bottom:38px; }.auth-heading { margin-bottom:27px; }.auth-heading h1 { font-size:2rem; }.auth-field-grid { grid-template-columns:1fr; gap:19px; }.password-rules { grid-template-columns:1fr; }
 	.dashboard-topbar { gap:10px; }.dashboard-search { display:none; }.topbar-actions { margin-left:auto; gap:8px; }.profile-chip div { display:none; }.dashboard-content { width:calc(100% - 28px); padding-top:26px; }.dashboard-title-row { align-items:flex-start; flex-direction:column; }.dashboard-primary-action { width:100%; justify-content:center; }.dashboard-hero-card { grid-template-columns:1fr; }.dashboard-hero-copy { padding:29px 25px; }.dashboard-progress-visual { justify-content:flex-start; padding:0 25px 28px; }.progress-ring { width:102px; height:102px; }.progress-steps { display:grid; }.dashboard-metrics { grid-template-columns:1fr; }.dashboard-grid { grid-template-columns:1fr; }.profile-card { grid-row:auto; }.roadmap-list { padding-inline:16px; }.dashboard-card header { padding-inline:17px; }.roadmap-list article { grid-template-columns:auto 1fr; }.roadmap-list em { grid-column:2; justify-self:start; margin-top:-10px; margin-bottom:9px; }
+	.advisor-composer { width:calc(100% - 24px); }.advisor-message { grid-template-columns:30px minmax(0,1fr); }.advisor-chat-header h2 { max-width:min(420px,60vw); }
 }
