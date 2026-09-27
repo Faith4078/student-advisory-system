@@ -1,4 +1,4 @@
-import { relations } from "drizzle-orm";
+import { relations, sql } from "drizzle-orm";
 import { boolean, index, pgTable, text, timestamp } from "drizzle-orm/pg-core";
 
 export const user = pgTable("user", {
@@ -17,6 +17,11 @@ export const user = pgTable("user", {
 	firstName: text("first_name").notNull(),
 	lastName: text("last_name").notNull(),
 	department: text("department").notNull(),
+	bio: text("bio"),
+	interests: text("interests")
+		.array()
+		.notNull()
+		.default(sql`'{}'::text[]`),
 });
 
 export const session = pgTable(

@@ -6,30 +6,18 @@ import {
 } from "@tanstack/react-router";
 import { useServerFn } from "@tanstack/react-start";
 import {
-	Bell,
-	BookOpen,
 	Bot,
-	ClipboardList,
-	GraduationCap,
-	KeyRound,
-	LayoutDashboard,
-	Lightbulb,
-	LogOut,
-	Menu,
 	MessageSquareText,
 	PanelLeft,
 	Pencil,
 	Plus,
-	Search,
 	Send,
-	Settings,
 	Sparkles,
 	Trash2,
-	UserRound,
-	X,
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { toast } from "sonner";
+import { DashboardSidebar, DashboardTopbar } from "../components/dashboard-shell";
 import {
 	deleteAdvisorChat,
 	loadAdvisorState,
@@ -37,7 +25,6 @@ import {
 	sendAdvisorPrompt,
 } from "../lib/advisor.functions";
 import { getSession } from "../lib/auth.functions";
-import { authClient } from "../lib/auth-client";
 
 function normalizeSearch(search: Record<string, unknown>) {
 	return { chat: typeof search.chat === "string" ? search.chat : undefined };
@@ -59,12 +46,6 @@ export const Route = createFileRoute("/dashboard_/advisor")({
 	loader: ({ deps }) => loadAdvisorState({ data: { chatId: deps.chat } }),
 	component: AdvisorPage,
 });
-
-const advisorNavItems = [
-	{ label: "Topic workspace", icon: Lightbulb },
-	{ label: "Research plan", icon: ClipboardList },
-	{ label: "Resources", icon: BookOpen },
-];
 
 const starterPrompts = [
 	"Help me turn my project idea into a research topic",
@@ -98,19 +79,6 @@ function AdvisorPage() {
 			block: "end",
 		});
 	}, []);
-
-	async function signOut() {
-		const result = await authClient.signOut();
-		if (result.error) {
-			toast.error("We couldn't sign you out. Please try again.");
-			return;
-		}
-		toast.success("You have been signed out.");
-		await navigate({
-			to: "/signin",
-			search: { redirect: "/dashboard/advisor" },
-		});
-	}
 
 	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -175,106 +143,27 @@ function AdvisorPage() {
 
 	return (
 		<main className="dashboard-page advisor-page">
-			<button
-				className={sidebarOpen ? "dashboard-scrim is-open" : "dashboard-scrim"}
-				type="button"
-				onClick={() => setSidebarOpen(false)}
-				aria-label="Close navigation"
-			/>
-			<aside
-				className={
-					sidebarOpen ? "dashboard-sidebar is-open" : "dashboard-sidebar"
-				}
-			>
-				<div className="dashboard-logo-row">
-					<Link className="brand" to="/">
-						<span className="brand-mark">
-							<GraduationCap size={20} />
+			<DashboardSidebar
+				open={sidebarOpen}
+				onClose={() => setSidebarOpen(false)}
+				currentPath="/dashboard/advisor"
+				guide={
+					<>
+						<span>
+							<Sparkles size={15} /> Advisor memory
 						</span>
-						<span>thesisly</span>
-					</Link>
-					<button
-						className="sidebar-close"
-						type="button"
-						onClick={() => setSidebarOpen(false)}
-						aria-label="Close navigation"
-					>
-						<X size={20} />
-					</button>
-				</div>
-				<nav className="dashboard-nav" aria-label="Dashboard navigation">
-					<p>Your workspace</p>
-					<Link to="/dashboard" activeOptions={{ exact: true }}>
-						<LayoutDashboard size={18} /> Overview
-					</Link>
-					<Link to="/dashboard/advisor" search={{ chat: undefined }}>
-						<MessageSquareText size={18} /> AI Advisor
-					</Link>
-					{advisorNavItems.map(({ label, icon: Icon }) => (
-						<button type="button" key={label}>
-							<Icon size={18} /> {label}
-						</button>
-					))}
-					<p>Account</p>
-					<button type="button">
-						<UserRound size={18} /> Profile
-					</button>
-					<button type="button">
-						<Settings size={18} /> Settings
-					</button>
-					<Link to="/recovery-code">
-						<KeyRound size={18} /> Recovery code
-					</Link>
-					<button className="sidebar-logout" type="button" onClick={signOut}>
-						<LogOut size={18} /> Logout
-					</button>
-				</nav>
-				<div className="sidebar-guide">
-					<span>
-						<Sparkles size={15} /> Advisor memory
-					</span>
-					<strong>Every chat is saved.</strong>
-					<p>Rename, delete, or continue previous conversations anytime.</p>
-				</div>
-			</aside>
+						<strong>Every chat is saved.</strong>
+						<p>Rename, delete, or continue previous conversations anytime.</p>
+					</>
+				}
+			/>
 
 			<section className="dashboard-main advisor-main">
-				<header className="dashboard-topbar">
-					<button
-						className="mobile-sidebar-toggle"
-						type="button"
-						onClick={() => setSidebarOpen(true)}
-						aria-label="Open navigation"
-					>
-						<Menu size={22} />
-					</button>
-					<label className="dashboard-search">
-						<Search size={17} />
-						<input
-							placeholder="Search advisor history"
-							aria-label="Search advisor history"
-						/>
-					</label>
-					<div className="topbar-actions">
-						<button
-							className="notification-button"
-							type="button"
-							aria-label="Notifications"
-						>
-							<Bell size={20} />
-							<span />
-						</button>
-						<div className="profile-chip">
-							<span>{initials.toUpperCase()}</span>
-							<div>
-								<strong>
-									{user.firstName} {user.lastName}
-								</strong>
-								<small>{user.department}</small>
-							</div>
-						</div>
-					</div>
-				</header>
+				<DashboardTopbar
+					user={user}
+					searchPlaceholder="Search advisor history"
+					onOpenSidebar={() => setSidebarOpen(true)}
+				/>
 
 				<div className="advisor-shell">
 					<button
@@ -386,7 +275,7 @@ function AdvisorPage() {
 										? conversations.find(
 												(item) => item.id === activeConversation,
 											)?.title
-										: `Good morning, ${firstName}`}
+										: `Welcome back, ${firstName}`}
 								</h2>
 							</div>
 						</header>

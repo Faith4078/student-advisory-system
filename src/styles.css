@@ -343,7 +343,7 @@ input { font:inherit; }
 .profile-card dl { margin:21px 22px; border-top:1px solid #edf0f4; text-align:left; }
 .profile-card dl div { padding:13px 0; border-bottom:1px solid #edf0f4; }
 .profile-card dt { color:#9ba3af; font-size:.59rem; text-transform:uppercase; letter-spacing:.08em; }.profile-card dd { margin:5px 0 0; color:#4f596c; font-size:.69rem; overflow-wrap:anywhere; }
-.profile-card>button,.deadline-card>button { height:38px; padding:0 15px; border:1px solid #dce3ed; border-radius:7px; color:#4f5c70; background:#fff; font-size:.68rem; font-weight:700; }
+.profile-card>button,.profile-card>a,.deadline-card>button { height:38px; display:flex; align-items:center; justify-content:center; padding:0 15px; border:1px solid #dce3ed; border-radius:7px; color:#4f5c70; background:#fff; font-size:.68rem; font-weight:700; text-decoration:none; }
 .activity-card,.deadline-card { min-height:260px; }
 .empty-state,.deadline-empty { min-height:178px; display:flex; flex-direction:column; align-items:center; justify-content:center; padding:20px; text-align:center; }
 .empty-state>span { width:48px; height:48px; display:grid; place-items:center; margin-bottom:12px; border-radius:13px; color:#8e99aa; background:#f1f4f8; }
@@ -394,12 +394,38 @@ input { font:inherit; }
 .advisor-composer button { width:42px; height:42px; align-self:end; display:grid; place-items:center; border:0; border-radius:9px; color:#fff; background:#146ef5; }
 .advisor-composer button:disabled { cursor:not-allowed; opacity:.55; }
 
+/* Profile */
+.profile-grid { display:grid; grid-template-columns:minmax(0,1.6fr) minmax(280px,.9fr); gap:18px; align-items:start; }
+.profile-form-body { display:grid; gap:20px; padding:24px; }
+.profile-field-grid { display:grid; grid-template-columns:1fr 1fr; gap:15px; }
+.form-field textarea { width:100%; padding:12px 14px; border:1px solid #d9dde6; border-radius:9px; outline:none; color:#151a27; background:#fff; font-size:.85rem; line-height:1.6; resize:vertical; transition:border-color .2s,box-shadow .2s; }
+.form-field textarea::placeholder { color:#a6abb7; }
+.form-field textarea:focus { border-color:#146ef5; box-shadow:0 0 0 4px rgba(20,110,245,.1); }
+.form-field input:disabled { color:#8b93a1; background:#f5f7fb; cursor:not-allowed; }
+.field-hint { display:block; margin-top:6px; color:#9aa2af; font-size:.65rem; text-align:right; }
+.interest-input-row { display:flex; gap:8px; }
+.interest-input-row input { flex:1; }
+.interest-input-row button { padding:0 18px; border:0; border-radius:9px; color:#fff; background:#146ef5; font-size:.75rem; font-weight:700; }
+.interest-chip-list { display:flex; flex-wrap:wrap; gap:8px; margin:14px 0 0; padding:0; list-style:none; }
+.interest-chip-list li { display:flex; align-items:center; gap:6px; padding:7px 8px 7px 13px; border-radius:99px; color:#146ef5; background:#eaf3ff; font-size:.73rem; font-weight:700; }
+.interest-chip-list button { display:grid; place-items:center; width:18px; height:18px; border:0; border-radius:50%; color:#146ef5; background:rgba(20,110,245,.14); }
+.profile-form-footer { display:flex; justify-content:flex-end; padding:0 24px 24px; }
+.memory-card { padding-bottom:8px; }
+.memory-list { display:grid; gap:10px; max-height:520px; margin:0; padding:16px; overflow:auto; list-style:none; }
+.memory-list li { padding:13px 14px; border:1px solid #e2e6ee; border-radius:10px; background:#fbfcfe; }
+.memory-list p { margin:0; color:#2b3242; font-size:.78rem; line-height:1.55; }
+.memory-meta { display:flex; align-items:center; justify-content:space-between; margin-top:9px; }
+.memory-meta small { color:#9aa2af; font-size:.63rem; }
+.memory-meta button { display:grid; place-items:center; width:26px; height:26px; border:0; border-radius:7px; color:#9aa2af; background:transparent; }
+.memory-meta button:hover { color:#c23b3b; background:#fdecec; }
+
 @media (max-width:1050px) {
 	.auth-page { grid-template-columns:380px 1fr; }.auth-story { padding-inline:34px; }.auth-story-copy h2 { font-size:2.7rem; }
 	.dashboard-progress-visual { gap:18px; padding-inline:20px; }.progress-steps { display:none; }
 }
 @media (max-width:1050px) {
 	.advisor-shell { grid-template-columns:260px minmax(0,1fr); }
+	.profile-grid { grid-template-columns:1fr; }
 }
 @media (min-width:861px) {
 	.advisor-history.is-open { border-right:0; opacity:0; pointer-events:none; }
@@ -415,6 +441,7 @@ input { font:inherit; }
 }
 @media (max-width:680px) {
 	.auth-mobile-brand { margin-bottom:38px; }.auth-heading { margin-bottom:27px; }.auth-heading h1 { font-size:2rem; }.auth-field-grid { grid-template-columns:1fr; gap:19px; }.password-rules { grid-template-columns:1fr; }
+	.profile-field-grid { grid-template-columns:1fr; }.profile-form-body { padding:20px; }.profile-form-footer { padding:0 20px 20px; }
 	.dashboard-topbar { gap:10px; }.dashboard-search { display:none; }.topbar-actions { margin-left:auto; gap:8px; }.profile-chip div { display:none; }.dashboard-content { width:calc(100% - 28px); padding-top:26px; }.dashboard-title-row { align-items:flex-start; flex-direction:column; }.dashboard-primary-action { width:100%; justify-content:center; }.dashboard-hero-card { grid-template-columns:1fr; }.dashboard-hero-copy { padding:29px 25px; }.dashboard-progress-visual { justify-content:flex-start; padding:0 25px 28px; }.progress-ring { width:102px; height:102px; }.progress-steps { display:grid; }.dashboard-metrics { grid-template-columns:1fr; }.dashboard-grid { grid-template-columns:1fr; }.profile-card { grid-row:auto; }.roadmap-list { padding-inline:16px; }.dashboard-card header { padding-inline:17px; }.roadmap-list article { grid-template-columns:auto 1fr; }.roadmap-list em { grid-column:2; justify-self:start; margin-top:-10px; margin-bottom:9px; }
 	.advisor-composer { width:calc(100% - 24px); }.advisor-message { grid-template-columns:30px minmax(0,1fr); }.advisor-chat-header h2 { max-width:min(420px,60vw); }
 }

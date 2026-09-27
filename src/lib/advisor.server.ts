@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { advisorConversation, advisorMessage } from "../db/schema";
+import { rememberConversationTurn } from "./mem0";
 
 export type AdvisorConversationSummary = {
 	id: string;
@@ -177,6 +178,15 @@ export async function sendAdvisorMessage(input: {
 			.update(advisorConversation)
 			.set({ updatedAt: new Date() })
 			.where(eq(advisorConversation.id, conversationId));
+	});
+
+	// Best-effort: let the AI Advisor's long-term memory learn from this turn.
+	// mem0 decides on its own which facts are worth adding, updating, or
+	// discarding, so this call never blocks or fails the chat itself.
+	await rememberConversationTurn({
+		userId: input.userId,
+		userMessage: input.content,
+		assistantMessage: assistantContent,
 	});
 
 	return { conversationId };
