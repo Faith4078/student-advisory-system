@@ -10,7 +10,6 @@ import {
 	LogOut,
 	Menu,
 	MessageSquareText,
-	Search,
 	Settings,
 	UserRound,
 	X,
@@ -108,7 +107,6 @@ export function DashboardSidebar({
 
 export function DashboardTopbar({
 	user,
-	searchPlaceholder,
 	onOpenSidebar,
 }: {
 	user: {
@@ -116,7 +114,6 @@ export function DashboardTopbar({
 		lastName: string | null | undefined;
 		department: string;
 	};
-	searchPlaceholder: string;
 	onOpenSidebar: () => void;
 }) {
 	const initials =
@@ -132,10 +129,6 @@ export function DashboardTopbar({
 			>
 				<Menu size={22} />
 			</button>
-			<label className="dashboard-search">
-				<Search size={17} />
-				<input placeholder={searchPlaceholder} aria-label={searchPlaceholder} />
-			</label>
 			<div className="topbar-actions">
 				<button
 					className="notification-button"

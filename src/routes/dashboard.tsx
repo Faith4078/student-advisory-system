@@ -81,7 +81,6 @@ function DashboardPage() {
 			<section className="dashboard-main">
 				<DashboardTopbar
 					user={user}
-					searchPlaceholder="Search your topics, plans, and resources"
 					onOpenSidebar={() => setSidebarOpen(true)}
 				/>
 

@@ -1,4 +1,4 @@
-import { createFileRoute, Link } from "@tanstack/react-router";
+import { createFileRoute } from "@tanstack/react-router";
 import {
 	ArrowRight,
 	BookOpen,
@@ -7,20 +7,23 @@ import {
 	ChevronRight,
 	ClipboardCheck,
 	Compass,
-	GraduationCap,
 	Lightbulb,
-	Menu,
 	MessageSquareText,
 	Search,
 	ShieldCheck,
 	Sparkles,
 	Target,
 	Users,
-	X,
 } from "lucide-react";
 import { useState } from "react";
+import { SiteFooter } from "../components/site-footer";
+import { SiteHeader } from "../components/site-header";
+import { getSession } from "../lib/auth.functions";
 
-export const Route = createFileRoute("/")({ component: Home });
+export const Route = createFileRoute("/")({
+	loader: async () => ({ isSignedIn: Boolean(await getSession()) }),
+	component: Home,
+});
 
 const disciplines = [
 	{
@@ -71,49 +74,18 @@ const process = [
 ];
 
 function Home() {
-	const [menuOpen, setMenuOpen] = useState(false);
+	const { isSignedIn } = Route.useLoaderData();
 	const [discipline, setDiscipline] = useState("Computer Science");
 	const [interest, setInterest] = useState("");
 	const [generated, setGenerated] = useState(false);
 
 	const scrollToStarter = () => {
 		document.querySelector("#starter")?.scrollIntoView({ behavior: "smooth" });
-		setMenuOpen(false);
 	};
 
 	return (
 		<main>
-			<header className="site-header">
-				<div className="container nav-wrap">
-					<a className="brand" href="#top" aria-label="Thesisly home">
-						<span className="brand-mark">
-							<GraduationCap size={22} strokeWidth={2.2} />
-						</span>
-						<span>thesisly</span>
-					</a>
-					<nav
-						className={menuOpen ? "main-nav is-open" : "main-nav"}
-						aria-label="Primary navigation"
-					>
-						<a href="#how-it-works">How it works</a>
-						<a href="#disciplines">Disciplines</a>
-						<a href="#stories">Example outcome</a>
-						<Link to="/signin" search={{ redirect: "/dashboard" }}>Sign in</Link>
-						<Link className="nav-cta" to="/signup">
-							Get started <ArrowRight size={16} />
-						</Link>
-					</nav>
-					<button
-						className="menu-toggle"
-						type="button"
-						aria-label={menuOpen ? "Close menu" : "Open menu"}
-						aria-expanded={menuOpen}
-						onClick={() => setMenuOpen((current) => !current)}
-					>
-						{menuOpen ? <X /> : <Menu />}
-					</button>
-				</div>
-			</header>
+			<SiteHeader isSignedIn={isSignedIn} />
 
 			<section className="hero" id="top">
 				<div className="hero-grid container">
@@ -467,25 +439,7 @@ function Home() {
 				</div>
 			</section>
 
-			<footer className="footer">
-				<div className="container footer-grid">
-					<div>
-						<a className="brand footer-brand" href="#top">
-							<span className="brand-mark">
-								<GraduationCap size={21} />
-							</span>
-							<span>thesisly</span>
-						</a>
-						<p>Clarity for the project that defines your degree.</p>
-					</div>
-					<div className="footer-links">
-						<a href="#how-it-works">How it works</a>
-						<a href="#disciplines">Disciplines</a>
-						<a href="#stories">Example outcome</a>
-					</div>
-					<p className="copyright">© 2026 Thesisly. Built for curious minds.</p>
-				</div>
-			</footer>
+			<SiteFooter />
 		</main>
 	);
 }

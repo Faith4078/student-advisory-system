@@ -97,6 +97,8 @@ function SignUpPage() {
 		<AuthShell
 			title="Create your student account"
 			description="Use your school details to set up your private project workspace."
+			showJourneyTag={false}
+			showTrustMessage={false}
 		>
 			<form className="auth-form" onSubmit={handleSubmit}>
 				<div className="auth-field-grid">

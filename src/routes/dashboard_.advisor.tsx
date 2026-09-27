@@ -161,7 +161,6 @@ function AdvisorPage() {
 			<section className="dashboard-main advisor-main">
 				<DashboardTopbar
 					user={user}
-					searchPlaceholder="Search advisor history"
 					onOpenSidebar={() => setSidebarOpen(true)}
 				/>
 

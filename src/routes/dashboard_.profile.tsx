@@ -133,7 +133,6 @@ function ProfilePage() {
 			<section className="dashboard-main">
 				<DashboardTopbar
 					user={user}
-					searchPlaceholder="Search your profile"
 					onOpenSidebar={() => setSidebarOpen(true)}
 				/>
 
