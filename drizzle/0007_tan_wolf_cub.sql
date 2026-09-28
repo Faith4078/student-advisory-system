@@ -1,0 +1,1 @@
+ALTER TABLE "advisor_message" ADD COLUMN "sources" jsonb;

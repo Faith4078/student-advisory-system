@@ -16,13 +16,17 @@ import {
 	Trash2,
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import { toast } from "sonner";
-import { DashboardSidebar, DashboardTopbar } from "../components/dashboard-shell";
+import {
+	DashboardSidebar,
+	DashboardTopbar,
+} from "../components/dashboard-shell";
 import {
 	deleteAdvisorChat,
 	loadAdvisorState,
 	renameAdvisorChat,
-	sendAdvisorPrompt,
 } from "../lib/advisor.functions";
 import { getSession } from "../lib/auth.functions";
 
@@ -44,8 +48,23 @@ export const Route = createFileRoute("/dashboard_/advisor")({
 	},
 	loaderDeps: ({ search }) => ({ chat: search.chat }),
 	loader: ({ deps }) => loadAdvisorState({ data: { chatId: deps.chat } }),
-	component: AdvisorPage,
+	component: AdvisorRoute,
 });
+
+function AdvisorRoute() {
+	const { chat } = Route.useSearch();
+	// Keying on `chat` forces a full remount (all local state, including
+	// `displayMessages`, reset from scratch) whenever the active conversation
+	// identity changes — switching chats or starting a new one — rather than
+	// relying on an effect to notice and resync in time. That effect-based
+	// sync is still correct for same-conversation updates (see below), but
+	// proved too easy to race against a fast-follow navigation: TanStack
+	// Router's own preload/cancellation timing could leave a stale fetch's
+	// result landing after a navigation, and no amount of guarding that one
+	// call site closed every path to it. A remount can't observe stale data
+	// because it never existed in the new instance.
+	return <AdvisorPage key={chat ?? "__latest__"} />;
+}
 
 const starterPrompts = [
 	"Help me turn my project idea into a research topic",
@@ -53,13 +72,31 @@ const starterPrompts = [
 	"Help me define scope and objectives",
 ];
 
+type LoaderMessages = Awaited<ReturnType<typeof loadAdvisorState>>["messages"];
+type ChatMessage = LoaderMessages[number];
+
+type StreamEvent =
+	| { type: "conversation"; conversationId: string }
+	| { type: "delta"; text: string }
+	| { type: "done"; citations: ChatMessage["sources"] }
+	| { type: "error"; message: string };
+
+function parseSseFrame(frame: string): StreamEvent | null {
+	const trimmed = frame.trim();
+	if (!trimmed.startsWith("data:")) return null;
+	try {
+		return JSON.parse(trimmed.slice(5).trim());
+	} catch {
+		return null;
+	}
+}
+
 function AdvisorPage() {
 	const { user } = Route.useRouteContext();
 	const { chat } = Route.useSearch();
 	const { conversations, messages, activeConversation } = Route.useLoaderData();
 	const navigate = Route.useNavigate();
 	const router = useRouter();
-	const sendPrompt = useServerFn(sendAdvisorPrompt);
 	const renameChat = useServerFn(renameAdvisorChat);
 	const deleteChat = useServerFn(deleteAdvisorChat);
 	const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -68,17 +105,28 @@ function AdvisorPage() {
 	const [prompt, setPrompt] = useState("");
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [draftTitle, setDraftTitle] = useState("");
+	const [displayMessages, setDisplayMessages] =
+		useState<ChatMessage[]>(messages);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
 	const firstName = user.firstName || user.name.split(" ")[0] || "Student";
 	const initials =
 		`${user.firstName?.[0] ?? ""}${user.lastName?.[0] ?? ""}` || "ST";
 
+	// The loader's `messages` is the source of truth whenever we're not
+	// actively streaming a reply (switching conversations, after rename,
+	// after a stream persists and we invalidate). During a stream, local
+	// deltas are appended directly instead of re-syncing from here.
+	useEffect(() => {
+		setDisplayMessages(messages);
+	}, [messages]);
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: intentionally re-scrolls on every streamed delta, not just when the message list itself changes
 	useEffect(() => {
 		messagesEndRef.current?.scrollIntoView({
 			behavior: "smooth",
 			block: "end",
 		});
-	}, []);
+	}, [displayMessages]);
 
 	async function handleSubmit(event: FormEvent<HTMLFormElement>) {
 		event.preventDefault();
@@ -86,23 +134,122 @@ function AdvisorPage() {
 		const content = prompt.trim();
 		if (content.length < 2) return;
 
+		setPrompt("");
 		setPending(true);
+
+		const now = new Date().toISOString();
+		const userMessageId = `pending-user-${Date.now()}`;
+		const assistantMessageId = `pending-assistant-${Date.now()}`;
+		setDisplayMessages((prev) => [
+			...prev,
+			{
+				id: userMessageId,
+				role: "user",
+				content,
+				sources: null,
+				createdAt: now,
+			},
+			{
+				id: assistantMessageId,
+				role: "assistant",
+				content: "",
+				sources: null,
+				createdAt: now,
+			},
+		]);
+
+		let resolvedConversationId = activeConversation ?? undefined;
+		let streamFailed = false;
+
 		try {
-			const result = await sendPrompt({
-				data: { conversationId: activeConversation ?? undefined, content },
+			const response = await fetch("/api/advisor/stream", {
+				method: "POST",
+				headers: { "Content-Type": "application/json" },
+				body: JSON.stringify({
+					conversationId: resolvedConversationId,
+					content,
+				}),
 			});
-			setPrompt("");
-			if (result.conversationId !== chat) {
-				await navigate({
-					to: "/dashboard/advisor",
-					search: { chat: result.conversationId },
-				});
+			if (!response.ok || !response.body) {
+				throw new Error(`Advisor stream request failed (${response.status})`);
 			}
-			await router.invalidate({ sync: true });
+
+			const reader = response.body.getReader();
+			const decoder = new TextDecoder();
+			let buffer = "";
+
+			while (true) {
+				const { done, value } = await reader.read();
+				if (done) break;
+				buffer += decoder.decode(value, { stream: true });
+				const frames = buffer.split("\n\n");
+				buffer = frames.pop() ?? "";
+				for (const frame of frames) {
+					const event = parseSseFrame(frame);
+					if (!event) continue;
+					if (event.type === "conversation") {
+						resolvedConversationId = event.conversationId;
+					} else if (event.type === "delta") {
+						setDisplayMessages((prev) =>
+							prev.map((message) =>
+								message.id === assistantMessageId
+									? { ...message, content: message.content + event.text }
+									: message,
+							),
+						);
+					} else if (event.type === "done") {
+						setDisplayMessages((prev) =>
+							prev.map((message) =>
+								message.id === assistantMessageId
+									? { ...message, sources: event.citations }
+									: message,
+							),
+						);
+					} else if (event.type === "error") {
+						streamFailed = true;
+						setDisplayMessages((prev) =>
+							prev.map((message) =>
+								message.id === assistantMessageId
+									? { ...message, content: event.message }
+									: message,
+							),
+						);
+					}
+				}
+			}
 		} catch {
-			toast.error("The advisor could not save that message.");
+			streamFailed = true;
+			toast.error("The advisor could not answer that.");
+			setDisplayMessages((prev) =>
+				prev.filter(
+					(message) =>
+						message.id !== userMessageId && message.id !== assistantMessageId,
+				),
+			);
 		} finally {
 			setPending(false);
+		}
+
+		// Sync the URL/sidebar to the resolved conversation — but only if the
+		// user is still exactly where they were when this send started. If
+		// they've since navigated away (clicked "New chat", switched to a
+		// different conversation), none of this has any business running: a
+		// late-landing `navigate()` would silently override where they just
+		// went, and a late-landing `invalidate()` can refetch/overwrite the
+		// view they're now looking at with data for the view they left. Their
+		// own navigation already triggers a fresh loader call on its own, so
+		// skipping this entirely when they've moved on loses nothing.
+		if (!streamFailed && resolvedConversationId) {
+			const stillOnSameView = () => router.state.location.search.chat === chat;
+			if (stillOnSameView() && resolvedConversationId !== chat) {
+				await navigate({
+					to: "/dashboard/advisor",
+					search: { chat: resolvedConversationId },
+				});
+			}
+			if (stillOnSameView()) {
+				await router.invalidate({ sync: true });
+			}
 		}
 	}
 
@@ -186,7 +333,7 @@ function AdvisorPage() {
 							<Link
 								className="advisor-new-chat"
 								to="/dashboard/advisor"
-								search={{ chat: undefined }}
+								search={{ chat: "new" }}
 							>
 								<Plus size={17} /> New
 							</Link>
@@ -280,7 +427,7 @@ function AdvisorPage() {
 						</header>
 
 						<div className="advisor-messages">
-							{messages.length === 0 ? (
+							{displayMessages.length === 0 ? (
 								<div className="advisor-welcome">
 									<span>
 										<Bot size={26} />
@@ -303,26 +450,78 @@ function AdvisorPage() {
 									</div>
 								</div>
 							) : (
-								messages.map((message) => (
-									<article
-										className={`advisor-message ${message.role}`}
-										key={message.id}
-									>
-										<span>
-											{message.role === "assistant" ? (
-												<Bot size={17} />
-											) : (
-												initials.toUpperCase()
-											)}
-										</span>
-										<div>
-											<strong>
-												{message.role === "assistant" ? "AI Advisor" : "You"}
-											</strong>
-											<p>{message.content}</p>
-										</div>
-									</article>
-								))
+								displayMessages.map((message, index) => {
+									const projectSources = Array.from(
+										new Map(
+											(message.sources ?? [])
+												.filter((source) => source.projectId)
+												.map((source) => [
+													source.projectId,
+													{
+														id: source.projectId as string,
+														title: source.title,
+													},
+												]),
+										).values(),
+									);
+									const isStreamingPlaceholder =
+										pending &&
+										index === displayMessages.length - 1 &&
+										message.role === "assistant" &&
+										message.content.length === 0;
+									return (
+										<article
+											className={`advisor-message ${message.role}`}
+											key={message.id}
+										>
+											<span>
+												{message.role === "assistant" ? (
+													<Bot size={17} />
+												) : (
+													initials.toUpperCase()
+												)}
+											</span>
+											<div>
+												<strong>
+													{message.role === "assistant" ? "AI Advisor" : "You"}
+												</strong>
+												{isStreamingPlaceholder ? (
+													<output
+														className="advisor-typing"
+														aria-label="AI Advisor is thinking"
+													>
+														<span />
+														<span />
+														<span />
+													</output>
+												) : message.role === "assistant" ? (
+													<div className="advisor-markdown">
+														<ReactMarkdown remarkPlugins={[remarkGfm]}>
+															{message.content}
+														</ReactMarkdown>
+													</div>
+												) : (
+													<p>{message.content}</p>
+												)}
+												{projectSources.length > 0 && (
+													<div className="advisor-message-sources">
+														<span>Sources:</span>
+														{projectSources.map((source) => (
+															<Link
+																key={source.id}
+																to="/projects/$projectId"
+																params={{ projectId: source.id }}
+																target="_blank"
+															>
+																{source.title || "View project"}
+															</Link>
+														))}
+													</div>
+												)}
+											</div>
+										</article>
+									);
+								})
 							)}
 							<div ref={messagesEndRef} />
 						</div>

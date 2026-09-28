@@ -17,7 +17,11 @@ import { Route as RecoveryCodeRouteImport } from './routes/recovery-code'
 import { Route as SigninRouteImport } from './routes/signin'
 import { Route as SignupRouteImport } from './routes/signup'
 import { Route as DashboardAdvisorRouteImport } from './routes/dashboard_.advisor'
+import { Route as DashboardMyProjectsRouteImport } from './routes/dashboard_.my-projects'
 import { Route as DashboardProfileRouteImport } from './routes/dashboard_.profile'
+import { Route as DashboardUploadRouteImport } from './routes/dashboard_.upload'
+import { Route as ProjectsProjectIdRouteImport } from './routes/projects_.$projectId'
+import { Route as ApiAdvisorStreamRouteImport } from './routes/api/advisor/stream'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
 
 const IndexRoute = IndexRouteImport.update({
@@ -60,9 +64,29 @@ const DashboardAdvisorRoute = DashboardAdvisorRouteImport.update({
   path: '/dashboard/advisor',
   getParentRoute: () => rootRouteImport,
 } as any)
+const DashboardMyProjectsRoute = DashboardMyProjectsRouteImport.update({
+  id: '/dashboard_/my-projects',
+  path: '/dashboard/my-projects',
+  getParentRoute: () => rootRouteImport,
+} as any)
 const DashboardProfileRoute = DashboardProfileRouteImport.update({
   id: '/dashboard_/profile',
   path: '/dashboard/profile',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DashboardUploadRoute = DashboardUploadRouteImport.update({
+  id: '/dashboard_/upload',
+  path: '/dashboard/upload',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ProjectsProjectIdRoute = ProjectsProjectIdRouteImport.update({
+  id: '/projects_/$projectId',
+  path: '/projects/$projectId',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const ApiAdvisorStreamRoute = ApiAdvisorStreamRouteImport.update({
+  id: '/api/advisor/stream',
+  path: '/api/advisor/stream',
   getParentRoute: () => rootRouteImport,
 } as any)
 const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
@@ -80,7 +104,11 @@ export interface FileRoutesByFullPath {
   '/signin': typeof SigninRoute
   '/signup': typeof SignupRoute
   '/dashboard/advisor': typeof DashboardAdvisorRoute
+  '/dashboard/my-projects': typeof DashboardMyProjectsRoute
   '/dashboard/profile': typeof DashboardProfileRoute
+  '/dashboard/upload': typeof DashboardUploadRoute
+  '/projects/$projectId': typeof ProjectsProjectIdRoute
+  '/api/advisor/stream': typeof ApiAdvisorStreamRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesByTo {
@@ -92,7 +120,11 @@ export interface FileRoutesByTo {
   '/signin': typeof SigninRoute
   '/signup': typeof SignupRoute
   '/dashboard/advisor': typeof DashboardAdvisorRoute
+  '/dashboard/my-projects': typeof DashboardMyProjectsRoute
   '/dashboard/profile': typeof DashboardProfileRoute
+  '/dashboard/upload': typeof DashboardUploadRoute
+  '/projects/$projectId': typeof ProjectsProjectIdRoute
+  '/api/advisor/stream': typeof ApiAdvisorStreamRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRoutesById {
@@ -105,7 +137,11 @@ export interface FileRoutesById {
   '/signin': typeof SigninRoute
   '/signup': typeof SignupRoute
   '/dashboard_/advisor': typeof DashboardAdvisorRoute
+  '/dashboard_/my-projects': typeof DashboardMyProjectsRoute
   '/dashboard_/profile': typeof DashboardProfileRoute
+  '/dashboard_/upload': typeof DashboardUploadRoute
+  '/projects_/$projectId': typeof ProjectsProjectIdRoute
+  '/api/advisor/stream': typeof ApiAdvisorStreamRoute
   '/api/auth/$': typeof ApiAuthSplatRoute
 }
 export interface FileRouteTypes {
@@ -119,7 +155,11 @@ export interface FileRouteTypes {
     | '/signin'
     | '/signup'
     | '/dashboard/advisor'
+    | '/dashboard/my-projects'
     | '/dashboard/profile'
+    | '/dashboard/upload'
+    | '/projects/$projectId'
+    | '/api/advisor/stream'
     | '/api/auth/$'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -131,7 +171,11 @@ export interface FileRouteTypes {
     | '/signin'
     | '/signup'
     | '/dashboard/advisor'
+    | '/dashboard/my-projects'
     | '/dashboard/profile'
+    | '/dashboard/upload'
+    | '/projects/$projectId'
+    | '/api/advisor/stream'
     | '/api/auth/$'
   id:
     | '__root__'
@@ -143,7 +187,11 @@ export interface FileRouteTypes {
     | '/signin'
     | '/signup'
     | '/dashboard_/advisor'
+    | '/dashboard_/my-projects'
     | '/dashboard_/profile'
+    | '/dashboard_/upload'
+    | '/projects_/$projectId'
+    | '/api/advisor/stream'
     | '/api/auth/$'
   fileRoutesById: FileRoutesById
 }
@@ -156,7 +204,11 @@ export interface RootRouteChildren {
   SigninRoute: typeof SigninRoute
   SignupRoute: typeof SignupRoute
   DashboardAdvisorRoute: typeof DashboardAdvisorRoute
+  DashboardMyProjectsRoute: typeof DashboardMyProjectsRoute
   DashboardProfileRoute: typeof DashboardProfileRoute
+  DashboardUploadRoute: typeof DashboardUploadRoute
+  ProjectsProjectIdRoute: typeof ProjectsProjectIdRoute
+  ApiAdvisorStreamRoute: typeof ApiAdvisorStreamRoute
   ApiAuthSplatRoute: typeof ApiAuthSplatRoute
 }
 
@@ -218,11 +270,39 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof DashboardAdvisorRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/dashboard_/my-projects': {
+      id: '/dashboard_/my-projects'
+      path: '/dashboard/my-projects'
+      fullPath: '/dashboard/my-projects'
+      preLoaderRoute: typeof DashboardMyProjectsRouteImport
+      parentRoute: typeof rootRouteImport
+    }
     '/dashboard_/profile': {
       id: '/dashboard_/profile'
       path: '/dashboard/profile'
       fullPath: '/dashboard/profile'
       preLoaderRoute: typeof DashboardProfileRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/dashboard_/upload': {
+      id: '/dashboard_/upload'
+      path: '/dashboard/upload'
+      fullPath: '/dashboard/upload'
+      preLoaderRoute: typeof DashboardUploadRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/projects_/$projectId': {
+      id: '/projects_/$projectId'
+      path: '/projects/$projectId'
+      fullPath: '/projects/$projectId'
+      preLoaderRoute: typeof ProjectsProjectIdRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/api/advisor/stream': {
+      id: '/api/advisor/stream'
+      path: '/api/advisor/stream'
+      fullPath: '/api/advisor/stream'
+      preLoaderRoute: typeof ApiAdvisorStreamRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/api/auth/$': {
@@ -244,7 +324,11 @@ const rootRouteChildren: RootRouteChildren = {
   SigninRoute: SigninRoute,
   SignupRoute: SignupRoute,
   DashboardAdvisorRoute: DashboardAdvisorRoute,
+  DashboardMyProjectsRoute: DashboardMyProjectsRoute,
   DashboardProfileRoute: DashboardProfileRoute,
+  DashboardUploadRoute: DashboardUploadRoute,
+  ProjectsProjectIdRoute: ProjectsProjectIdRoute,
+  ApiAdvisorStreamRoute: ApiAdvisorStreamRoute,
   ApiAuthSplatRoute: ApiAuthSplatRoute,
 }
 export const routeTree = rootRouteImport

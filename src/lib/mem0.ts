@@ -53,6 +53,33 @@ export async function rememberConversationTurn(input: {
 	}
 }
 
+/**
+ * Semantic recall for the AI advisor agent: memories relevant to the
+ * current message, not the full history. Used to ground a reply in what
+ * this specific user has told the advisor before, without dumping every
+ * stored memory into the prompt on every turn.
+ */
+export async function recallRelevantMemories(input: {
+	userId: string;
+	query: string;
+	limit?: number;
+}): Promise<string[]> {
+	const memory = getClient();
+	if (!memory) return [];
+	try {
+		const result = await memory.search(input.query, {
+			filters: { user_id: input.userId },
+			topK: input.limit ?? 5,
+		});
+		return result.results
+			.map((entry) => entry.memory ?? "")
+			.filter((text) => text.length > 0);
+	} catch (error) {
+		console.error("mem0: failed to recall relevant memories", error);
+		return [];
+	}
+}
+
 export async function listUserMemories(
 	userId: string,
 ): Promise<AdvisorMemory[]> {
@@ -67,7 +94,9 @@ export async function listUserMemories(
 			.map((entry) => ({
 				id: entry.id,
 				memory: entry.memory ?? "",
-				updatedAt: entry.updatedAt ? new Date(entry.updatedAt).toISOString() : null,
+				updatedAt: entry.updatedAt
+					? new Date(entry.updatedAt).toISOString()
+					: null,
 				categories: entry.categories ?? [],
 			}))
 			.filter((entry) => entry.memory.length > 0);

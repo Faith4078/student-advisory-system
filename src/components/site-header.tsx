@@ -9,12 +9,17 @@ export function SiteHeader({ isSignedIn }: { isSignedIn: boolean }) {
 	return (
 		<header className="site-header">
 			<div className="container nav-wrap">
-				<a className="brand" href="#top" aria-label="Thesisly home">
+				<Link
+					className="brand"
+					to="/"
+					aria-label="Thesisly home"
+					onClick={closeMenu}
+				>
 					<span className="brand-mark">
 						<GraduationCap size={22} strokeWidth={2.2} />
 					</span>
 					<span>thesisly</span>
-				</a>
+				</Link>
 				<nav
 					className={menuOpen ? "main-nav is-open" : "main-nav"}
 					aria-label="Primary navigation"
@@ -22,7 +27,7 @@ export function SiteHeader({ isSignedIn }: { isSignedIn: boolean }) {
 					<Link to="/" hash="how-it-works" onClick={closeMenu}>
 						How it works
 					</Link>
-					<Link to="/projects" onClick={closeMenu}>
+					<Link to="/projects" search={{ page: 1 }} onClick={closeMenu}>
 						Projects
 					</Link>
 					{isSignedIn ? (

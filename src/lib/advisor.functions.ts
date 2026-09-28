@@ -1,5 +1,6 @@
 import { createServerFn } from "@tanstack/react-start";
 import {
+	getRequest,
 	getRequestHeaders,
 	setResponseHeader,
 } from "@tanstack/react-start/server";
@@ -10,6 +11,7 @@ import {
 	sendAdvisorMessage,
 } from "./advisor.server";
 import { auth } from "./auth";
+import { protectRequest } from "./security.server";
 
 type ChatIdInput = {
 	chatId?: string;
@@ -61,6 +63,16 @@ export const sendAdvisorPrompt = createServerFn({ method: "POST" })
 	.handler(async ({ data }) => {
 		setResponseHeader("Cache-Control", "no-store");
 		const user = await requireUser();
+		const decision = await protectRequest({
+			request: getRequest(),
+			userId: user.id,
+			sensitiveInfoValue: data.content,
+			// Chat is naturally higher-frequency than the other write routes.
+			limit: { max: 20, intervalSeconds: 30 },
+		});
+		if (!decision.allowed) {
+			throw new Error(decision.reason ?? "Request blocked.");
+		}
 		return sendAdvisorMessage({
 			userId: user.id,
 			firstName: user.firstName || user.name.split(" ")[0] || "Student",

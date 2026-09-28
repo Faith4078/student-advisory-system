@@ -29,6 +29,34 @@
       "when": 1790528883514,
       "tag": "0003_condemned_giant_man",
       "breakpoints": true
+    },
+    {
+      "idx": 4,
+      "version": "7",
+      "when": 1790560567612,
+      "tag": "0004_majestic_skullbuster",
+      "breakpoints": true
+    },
+    {
+      "idx": 5,
+      "version": "7",
+      "when": 1790568212186,
+      "tag": "0005_unknown_human_torch",
+      "breakpoints": true
+    },
+    {
+      "idx": 6,
+      "version": "7",
+      "when": 1790578110930,
+      "tag": "0006_illegal_northstar",
+      "breakpoints": true
+    },
+    {
+      "idx": 7,
+      "version": "7",
+      "when": 1790578658057,
+      "tag": "0007_tan_wolf_cub",
+      "breakpoints": true
     }
   ]
 }

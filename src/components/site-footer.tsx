@@ -6,12 +6,12 @@ export function SiteFooter() {
 		<footer className="footer">
 			<div className="container footer-grid">
 				<div>
-					<a className="brand footer-brand" href="#top">
+					<Link className="brand footer-brand" to="/">
 						<span className="brand-mark">
 							<GraduationCap size={21} />
 						</span>
 						<span>thesisly</span>
-					</a>
+					</Link>
 					<p>Clarity for the project that defines your degree.</p>
 				</div>
 				<div className="footer-links">

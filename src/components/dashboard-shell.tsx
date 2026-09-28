@@ -3,6 +3,7 @@ import {
 	Bell,
 	BookOpen,
 	ClipboardList,
+	FolderKanban,
 	GraduationCap,
 	KeyRound,
 	LayoutDashboard,
@@ -11,6 +12,7 @@ import {
 	Menu,
 	MessageSquareText,
 	Settings,
+	UploadCloud,
 	UserRound,
 	X,
 } from "lucide-react";
@@ -55,7 +57,9 @@ export function DashboardSidebar({
 				onClick={onClose}
 				aria-label="Close navigation"
 			/>
-			<aside className={open ? "dashboard-sidebar is-open" : "dashboard-sidebar"}>
+			<aside
+				className={open ? "dashboard-sidebar is-open" : "dashboard-sidebar"}
+			>
 				<div className="dashboard-logo-row">
 					<Link className="brand" to="/">
 						<span className="brand-mark">
@@ -79,6 +83,12 @@ export function DashboardSidebar({
 					</Link>
 					<Link to="/dashboard/advisor" search={{ chat: undefined }}>
 						<MessageSquareText size={18} /> AI Advisor
+					</Link>
+					<Link to="/dashboard/upload">
+						<UploadCloud size={18} /> Submit project
+					</Link>
+					<Link to="/dashboard/my-projects">
+						<FolderKanban size={18} /> My projects
 					</Link>
 					{workspaceNavItems.map(({ label, icon: Icon }) => (
 						<button type="button" key={label}>

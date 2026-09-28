@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import { and, asc, desc, eq } from "drizzle-orm";
 import { db } from "../db";
 import { advisorConversation, advisorMessage } from "../db/schema";
+import {
+	type AdvisorCitation,
+	runAdvisorAgent,
+	streamAdvisorAgent,
+} from "./advisor-agent.server";
 import { rememberConversationTurn } from "./mem0";
 
 export type AdvisorConversationSummary = {
@@ -17,6 +22,7 @@ export type AdvisorChatMessage = {
 	role: "user" | "assistant";
 	content: string;
 	createdAt: string;
+	sources: AdvisorCitation[] | null;
 };
 
 function serializeDate(value: Date) {
@@ -30,28 +36,13 @@ function makeTitle(prompt: string) {
 		: cleaned || "New chat";
 }
 
-function generateAdvisorReply(
-	prompt: string,
-	history: AdvisorChatMessage[],
-	firstName: string,
-) {
-	const previousUserTurns = history.filter(
-		(message) => message.role === "user",
-	).length;
-	const continuation =
-		previousUserTurns > 0
-			? `I remember the ${previousUserTurns} earlier point${previousUserTurns === 1 ? "" : "s"} in this conversation, so I will keep building from that context.`
-			: "I will keep this conversation saved so we can continue from here later.";
-
-	return [
-		`Got it, ${firstName}. ${continuation}`,
-		`For now, here is a structured advisor draft for: "${prompt}"`,
-		"1. Clarify the exact academic problem you want to solve.",
-		"2. List the data, tools, and constraints available in your department.",
-		"3. Turn the idea into one focused research question before expanding the scope.",
-		"Once LangChain is added, this function can call the real advisor agent with the stored conversation history.",
-	].join("\n");
-}
+/**
+ * Sentinel `chatId` meaning "force a blank new-chat screen" — distinct from
+ * an *absent* chatId (landing on /dashboard/advisor with no query param),
+ * which defaults to the user's most recent conversation. Real conversation
+ * ids are UUIDs, so this can never collide with one.
+ */
+export const NEW_CHAT_SENTINEL = "new";
 
 export async function getAdvisorState(input: {
 	userId: string;
@@ -69,8 +60,10 @@ export async function getAdvisorState(input: {
 		.orderBy(desc(advisorConversation.updatedAt));
 
 	const activeConversation: string | null =
-		conversations.find((conversation) => conversation.id === input.chatId)
-			?.id ?? (input.chatId ? null : (conversations[0]?.id ?? null));
+		input.chatId === NEW_CHAT_SENTINEL
+			? null
+			: (conversations.find((conversation) => conversation.id === input.chatId)
+					?.id ?? (input.chatId ? null : (conversations[0]?.id ?? null)));
 
 	const messages = activeConversation
 		? await db
@@ -78,6 +71,7 @@ export async function getAdvisorState(input: {
 					id: advisorMessage.id,
 					role: advisorMessage.role,
 					content: advisorMessage.content,
+					sources: advisorMessage.sources,
 					createdAt: advisorMessage.createdAt,
 				})
 				.from(advisorMessage)
@@ -96,18 +90,27 @@ export async function getAdvisorState(input: {
 		messages: messages.map((message) => ({
 			...message,
 			role: message.role === "assistant" ? "assistant" : "user",
+			sources: (message.sources as AdvisorCitation[] | null) ?? null,
 			createdAt: serializeDate(message.createdAt),
 		})) satisfies AdvisorChatMessage[],
 	};
 }
 
-export async function sendAdvisorMessage(input: {
+/**
+ * Ensures a conversation exists (creating one if `conversationId` is absent
+ * or doesn't belong to this user) and loads its prior turns as agent-ready
+ * history. Shared by both the buffered (`sendAdvisorMessage`) and streaming
+ * (`streamAdvisorMessage`) send paths so conversation bookkeeping can't
+ * drift between the two.
+ */
+async function resolveConversation(input: {
 	userId: string;
-	firstName: string;
 	conversationId?: string;
-	content: string;
-}) {
-	const now = new Date();
+	firstUserMessage: string;
+}): Promise<{
+	conversationId: string;
+	history: Array<{ role: "user" | "assistant"; content: string }>;
+}> {
 	let conversationId = input.conversationId;
 
 	if (conversationId) {
@@ -129,55 +132,70 @@ export async function sendAdvisorMessage(input: {
 		await db.insert(advisorConversation).values({
 			id: conversationId,
 			userId: input.userId,
-			title: makeTitle(input.content),
-			createdAt: now,
-			updatedAt: now,
+			title: makeTitle(input.firstUserMessage),
+			createdAt: new Date(),
+			updatedAt: new Date(),
 		});
+		return { conversationId, history: [] };
 	}
 
 	const history = await db
 		.select({
-			id: advisorMessage.id,
 			role: advisorMessage.role,
 			content: advisorMessage.content,
-			createdAt: advisorMessage.createdAt,
 		})
 		.from(advisorMessage)
 		.where(eq(advisorMessage.conversationId, conversationId))
 		.orderBy(asc(advisorMessage.createdAt));
 
-	const normalizedHistory = history.map((message) => ({
-		...message,
-		role: message.role === "assistant" ? "assistant" : "user",
-		createdAt: serializeDate(message.createdAt),
-	})) satisfies AdvisorChatMessage[];
-	const assistantContent = generateAdvisorReply(
-		input.content,
-		normalizedHistory,
-		input.firstName,
-	);
+	return {
+		conversationId,
+		history: history.map((message) => ({
+			role:
+				message.role === "assistant"
+					? ("assistant" as const)
+					: ("user" as const),
+			content: message.content,
+		})),
+	};
+}
 
+/**
+ * Persists a completed turn (both messages + citations), bumps the
+ * conversation's `updatedAt`, and best-effort teaches mem0 from it. Shared
+ * by both send paths — called once the assistant's full reply is known,
+ * whether that arrived in one shot or was streamed token by token.
+ */
+async function persistTurn(input: {
+	userId: string;
+	conversationId: string;
+	userMessage: string;
+	assistantContent: string;
+	citations: AdvisorCitation[];
+}) {
+	const now = new Date();
 	await db.transaction(async (transaction) => {
 		await transaction.insert(advisorMessage).values([
 			{
 				id: randomUUID(),
-				conversationId,
+				conversationId: input.conversationId,
 				role: "user",
-				content: input.content,
+				content: input.userMessage,
 				createdAt: now,
 			},
 			{
 				id: randomUUID(),
-				conversationId,
+				conversationId: input.conversationId,
 				role: "assistant",
-				content: assistantContent,
+				content: input.assistantContent,
+				sources: input.citations.length ? input.citations : null,
 				createdAt: new Date(now.getTime() + 1),
 			},
 		]);
 		await transaction
 			.update(advisorConversation)
 			.set({ updatedAt: new Date() })
-			.where(eq(advisorConversation.id, conversationId));
+			.where(eq(advisorConversation.id, input.conversationId));
 	});
 
 	// Best-effort: let the AI Advisor's long-term memory learn from this turn.
@@ -185,11 +203,97 @@ export async function sendAdvisorMessage(input: {
 	// discarding, so this call never blocks or fails the chat itself.
 	await rememberConversationTurn({
 		userId: input.userId,
+		userMessage: input.userMessage,
+		assistantMessage: input.assistantContent,
+	});
+}
+
+export async function sendAdvisorMessage(input: {
+	userId: string;
+	firstName: string;
+	conversationId?: string;
+	content: string;
+}) {
+	const { conversationId, history } = await resolveConversation({
+		userId: input.userId,
+		conversationId: input.conversationId,
+		firstUserMessage: input.content,
+	});
+
+	const { reply: assistantContent, citations } = await runAdvisorAgent({
+		userId: input.userId,
+		firstName: input.firstName,
+		history,
+		message: input.content,
+	});
+
+	await persistTurn({
+		userId: input.userId,
+		conversationId,
 		userMessage: input.content,
-		assistantMessage: assistantContent,
+		assistantContent,
+		citations,
 	});
 
 	return { conversationId };
+}
+
+export type AdvisorStreamMessageEvent =
+	| { type: "conversation"; conversationId: string }
+	| { type: "delta"; text: string }
+	| { type: "done"; citations: AdvisorCitation[] }
+	| { type: "error"; message: string };
+
+/**
+ * Streaming counterpart to {@link sendAdvisorMessage}, for the
+ * `/api/advisor/stream` route: yields the resolved conversation id first
+ * (the client needs it before the reply finishes, to update the URL), then
+ * text deltas as they're generated, then persists the full turn exactly
+ * like the buffered path before yielding `done`.
+ */
+export async function* streamAdvisorMessage(input: {
+	userId: string;
+	firstName: string;
+	conversationId?: string;
+	content: string;
+}): AsyncGenerator<AdvisorStreamMessageEvent> {
+	const { conversationId, history } = await resolveConversation({
+		userId: input.userId,
+		conversationId: input.conversationId,
+		firstUserMessage: input.content,
+	});
+	yield { type: "conversation", conversationId };
+
+	let fullText = "";
+	let citations: AdvisorCitation[] = [];
+
+	for await (const event of streamAdvisorAgent({
+		userId: input.userId,
+		firstName: input.firstName,
+		history,
+		message: input.content,
+	})) {
+		if (event.type === "delta") {
+			fullText += event.text;
+			yield { type: "delta", text: event.text };
+		} else if (event.type === "done") {
+			fullText = event.fullText;
+			citations = event.citations;
+		} else if (event.type === "error") {
+			yield { type: "error", message: event.message };
+			return;
+		}
+	}
+
+	await persistTurn({
+		userId: input.userId,
+		conversationId,
+		userMessage: input.content,
+		assistantContent: fullText,
+		citations,
+	});
+
+	yield { type: "done", citations };
 }
 
 export async function renameAdvisorConversation(input: {
