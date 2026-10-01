@@ -122,3 +122,74 @@ export async function forgetUserMemory(input: {
 		console.error("mem0: failed to delete memory", error);
 	}
 }
+
+/**
+ * Explicit, user-requested "remember this" — as opposed to
+ * `rememberConversationTurn`'s passive best-effort learning from ordinary
+ * chat. Routed through `memory.add()` rather than a raw insert because mem0's
+ * add pipeline already does its own semantic ADD/UPDATE/DELETE/NONE
+ * resolution against this user's existing memories: a fact that conflicts
+ * with something already stored (e.g. "actually I'm now interested in X, not
+ * Y") is updated in place rather than stored as a second, contradictory
+ * memory alongside the old one.
+ */
+export async function rememberExplicitFact(input: {
+	userId: string;
+	fact: string;
+}): Promise<boolean> {
+	const memory = getClient();
+	if (!memory) return false;
+	try {
+		await memory.add([{ role: "user", content: input.fact }], {
+			userId: input.userId,
+			agentId: ADVISOR_AGENT_ID,
+		});
+		return true;
+	} catch (error) {
+		console.error("mem0: failed to remember explicit fact", error);
+		return false;
+	}
+}
+
+// A search hit below this relevance score is treated as "not actually what
+// the student meant" rather than deleted — an explicit forget request should
+// not have a side effect of silently deleting an unrelated memory just
+// because it was the least-bad match in the search results.
+const FORGET_RELEVANCE_THRESHOLD = 0.4;
+
+/**
+ * Explicit, user-requested "forget this" — finds memories semantically
+ * matching a natural-language description (the model doesn't know raw
+ * memory ids) and deletes the ones that clear a relevance bar, returning
+ * what was actually deleted so the advisor can confirm it accurately rather
+ * than just claiming success.
+ */
+export async function forgetMatchingMemories(input: {
+	userId: string;
+	description: string;
+	limit?: number;
+}): Promise<AdvisorMemory[]> {
+	const memory = getClient();
+	if (!memory) return [];
+	try {
+		const result = await memory.search(input.description, {
+			filters: { user_id: input.userId },
+			topK: input.limit ?? 3,
+		});
+		const matches = result.results.filter(
+			(entry) =>
+				(entry.memory ?? "").length > 0 &&
+				(entry.score ?? 0) >= FORGET_RELEVANCE_THRESHOLD,
+		);
+		await Promise.all(matches.map((entry) => memory.delete(entry.id)));
+		return matches.map((entry) => ({
+			id: entry.id,
+			memory: entry.memory ?? "",
+			updatedAt: null,
+			categories: entry.categories ?? [],
+		}));
+	} catch (error) {
+		console.error("mem0: failed to forget matching memories", error);
+		return [];
+	}
+}

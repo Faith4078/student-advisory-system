@@ -75,7 +75,6 @@ export const sendAdvisorPrompt = createServerFn({ method: "POST" })
 		}
 		return sendAdvisorMessage({
 			userId: user.id,
-			firstName: user.firstName || user.name.split(" ")[0] || "Student",
 			conversationId: data.conversationId,
 			content: data.content,
 		});

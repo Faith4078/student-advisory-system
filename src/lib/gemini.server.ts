@@ -69,6 +69,10 @@ export type ProjectDraft = {
 	sourceSections: string[] | null;
 	extractionConfidence: number | null;
 	evidence: string | null;
+	// Complete verbatim transcription of this project's own source pages (not
+	// a summary) — the basis for late-chunked, full-document-aware retrieval.
+	// Null for a project whose deep-extraction call failed to produce one.
+	fullText: string | null;
 };
 
 type SafeParseResult<T> =
@@ -139,6 +143,7 @@ const PROJECT_DRAFT_FIELDS: Record<keyof ProjectDraft, FieldValidator> = {
 	sourceSections: nullableStringArray,
 	extractionConfidence: nullableNumber,
 	evidence: nullableString,
+	fullText: nullableString,
 };
 
 function parseProjectDraft(
@@ -175,38 +180,6 @@ export const ProjectDraftSchema = {
 			};
 		}
 		return { success: true, data };
-	},
-};
-
-export const ProjectDraftListSchema = {
-	safeParse(value: unknown): SafeParseResult<{ projects: ProjectDraft[] }> {
-		const issues: string[] = [];
-		if (
-			typeof value !== "object" ||
-			value === null ||
-			!Array.isArray((value as { projects?: unknown }).projects)
-		) {
-			return {
-				success: false,
-				error: {
-					message: "expected { projects: ProjectDraft[] }",
-					issues: ["projects: missing or not an array"],
-				},
-			};
-		}
-		const rawProjects = (value as { projects: unknown[] }).projects;
-		const projects: ProjectDraft[] = [];
-		rawProjects.forEach((item, index) => {
-			const draft = parseProjectDraft(item, `project[${index}]`, issues);
-			if (draft) projects.push(draft);
-		});
-		if (issues.length > 0) {
-			return {
-				success: false,
-				error: { message: issues.join("; "), issues },
-			};
-		}
-		return { success: true, data: { projects } };
 	},
 };
 
@@ -251,53 +224,251 @@ const projectDraftGeminiSchema = {
 		sourceSections: stringArrayField,
 		extractionConfidence: numberField,
 		evidence: stringField,
+		fullText: stringField,
 	},
 	required: Object.keys(PROJECT_DRAFT_FIELDS),
 };
 
-const projectDraftListGeminiSchema = {
+// --- Stage 1: discovery ------------------------------------------------------
+// A document with several projects (e.g. a SIWES/industrial-training report
+// covering many students) used to be extracted in one single Gemini call that
+// had to produce every field, for every project, in one JSON response. Under
+// that shared output budget the model reliably degraded into writing a short
+// synopsis per project instead of full per-field detail — it would rather
+// under-fill every project a little than run out of room. Splitting into a
+// cheap "where are the project boundaries" discovery pass followed by one
+// dedicated deep-extraction call *per project* (stage 2, below) gives every
+// project its own full output budget, which is what actually fixes that.
+
+type ProjectDiscovery = {
+	title: string | null;
+	sourcePageRangeStart: number | null;
+	sourcePageRangeEnd: number | null;
+	sourceSections: string[] | null;
+};
+
+const projectDiscoveryGeminiSchema = {
 	type: Type.OBJECT,
 	properties: {
-		projects: { type: Type.ARRAY, items: projectDraftGeminiSchema },
+		projects: {
+			type: Type.ARRAY,
+			items: {
+				type: Type.OBJECT,
+				properties: {
+					title: stringField,
+					sourcePageRangeStart: numberField,
+					sourcePageRangeEnd: numberField,
+					sourceSections: stringArrayField,
+				},
+				required: [
+					"title",
+					"sourcePageRangeStart",
+					"sourcePageRangeEnd",
+					"sourceSections",
+				],
+			},
+		},
 	},
 	required: ["projects"],
 };
 
-const EXTRACTION_INSTRUCTIONS = `You are extracting structured project records from an academic project/thesis
-document (which may be a single project or a combined report covering several
-distinct projects, e.g. a SIWES/industrial-training report).
+const DISCOVERY_INSTRUCTIONS = `You are scanning an academic project/thesis document to identify how many
+distinct student projects it contains (which may be a single project, or a
+combined report covering several distinct projects, e.g. a SIWES/industrial-
+training report covering multiple students).
+
+For EACH distinct project you find, report only:
+- a short identifying title (your best reading from the document)
+- the page range it spans (sourcePageRangeStart / sourcePageRangeEnd, 1-indexed)
+- the section headings that belong to it (sourceSections)
+
+Do not extract abstracts, methodology, results, or any other detailed field
+yet — this is only a structural scan to find project boundaries. Most
+documents contain exactly one project; some contain several. Return one entry
+per project, in document order. Return strictly the JSON object described by
+the response schema.`;
+
+function parseProjectDiscoveryList(value: unknown): ProjectDiscovery[] {
+	if (
+		typeof value !== "object" ||
+		value === null ||
+		!Array.isArray((value as { projects?: unknown }).projects)
+	) {
+		throw new Error("expected { projects: ProjectDiscovery[] }");
+	}
+	return (value as { projects: unknown[] }).projects
+		.filter(
+			(item): item is Record<string, unknown> =>
+				typeof item === "object" && item !== null,
+		)
+		.map((item) => ({
+			title: typeof item.title === "string" ? item.title : null,
+			sourcePageRangeStart:
+				typeof item.sourcePageRangeStart === "number"
+					? item.sourcePageRangeStart
+					: null,
+			sourcePageRangeEnd:
+				typeof item.sourcePageRangeEnd === "number"
+					? item.sourcePageRangeEnd
+					: null,
+			sourceSections: Array.isArray(item.sourceSections)
+				? item.sourceSections.filter((s): s is string => typeof s === "string")
+				: null,
+		}));
+}
+
+async function discoverProjects(
+	ai: GoogleGenAI,
+	input: { fileBytes: Buffer; mimeType: string },
+): Promise<ProjectDiscovery[]> {
+	const response = await ai.models.generateContent({
+		model: MODEL,
+		contents: [
+			{
+				role: "user",
+				parts: [
+					{ text: DISCOVERY_INSTRUCTIONS },
+					{
+						inlineData: {
+							mimeType: input.mimeType,
+							data: input.fileBytes.toString("base64"),
+						},
+					},
+				],
+			},
+		],
+		config: {
+			responseMimeType: "application/json",
+			responseSchema: projectDiscoveryGeminiSchema,
+		},
+	});
+
+	const raw = response.text;
+	if (!raw) {
+		console.error("gemini: discoverProjects got an empty response");
+		return [];
+	}
+	try {
+		return parseProjectDiscoveryList(JSON.parse(raw));
+	} catch (error) {
+		console.error("gemini: discoverProjects response failed validation", error);
+		return [];
+	}
+}
+
+// --- Stage 2: deep extraction, one Gemini call per discovered project -------
+
+function buildDeepExtractionInstructions(discovery: ProjectDiscovery): string {
+	return `You are extracting ONE structured project record, in full detail, from an
+academic project/thesis document. This document may contain multiple
+projects, but you must extract ONLY the single project described below —
+ignore all other projects' content entirely.
+
+TARGET PROJECT:
+- Working title: ${discovery.title ?? "(unknown — determine from the text)"}
+- Page range: ${discovery.sourcePageRangeStart ?? "?"}-${discovery.sourcePageRangeEnd ?? "?"}
+- Sections: ${discovery.sourceSections?.join(", ") ?? "(unknown)"}
 
 Rules:
-1. Identify every distinct project the document contains. Most documents hold
-   exactly one; some hold several — return one entry per project.
-2. Extract each project's fields exactly as defined by the schema.
-3. Never fabricate a value the source text does not support. If a field is not
-   stated or cannot be reasonably inferred from the text, return null for it —
-   do not guess or invent plausible-sounding content.
-4. Evaluate the abstract for each project:
-   - If the document contains an explicit academic abstract that adequately
-     covers the problem/purpose, approach, outcome, and significance (as far
-     as the source supports them) — and is not just narrative "I participated
-     in..." text — set abstractSource="explicit", put that exact text in
-     originalAbstract, and copy it into abstract.
-   - If no abstract exists, or the existing one is inadequate, WRITE a concise,
-     academically-styled abstract using only facts present in the document (no
-     invented results, technologies, or methodology). Set
-     abstractSource="generated", put your written text in generatedAbstract,
-     and copy it into abstract. Leave originalAbstract null in this case.
-5. Populate "evidence" with a short supporting quote or reference from the
-   source text for traceability, and "extractionConfidence" with your own
-   confidence (0 to 1) in the overall extraction for that project.
-6. Return strictly the JSON object described by the response schema.`;
+1. Extract this ONE project's fields exactly as defined by the schema, using
+   only the pages/sections identified above.
+2. IMPORTANT — do not summarize or compress. "methodology", "results", and
+   "conclusion" must reflect the FULL detail actually stated in the source for
+   THIS project (every technique, dataset, result, and limitation mentioned),
+   not a one- or two-sentence synopsis. A thorough, multi-paragraph answer is
+   expected and correct wherever the source supports it.
+3. Never fabricate a value the source text does not support. If a field is
+   not stated or cannot be reasonably inferred, return null for it.
+4. Evaluate the abstract:
+   - If this project has an explicit academic abstract that adequately covers
+     problem/purpose, approach, outcome, and significance — and is not just
+     narrative "I participated in..." text — set abstractSource="explicit",
+     put that exact text in originalAbstract, and copy it into abstract.
+   - Otherwise, WRITE a concise, academically-styled abstract using only facts
+     present in the document. Set abstractSource="generated", put your
+     written text in generatedAbstract, and copy it into abstract. Leave
+     originalAbstract null in this case.
+5. Populate "evidence" with a short supporting quote, and "extractionConfidence"
+   with your confidence (0 to 1) in this extraction.
+6. Populate "fullText" with a COMPLETE, FAITHFUL VERBATIM TRANSCRIPTION of this
+   project's own pages/sections — every paragraph, in reading order, exactly
+   as written in the source (excluding running headers, footers, and bare page
+   numbers). This is a transcription, not a summary: do not shorten,
+   paraphrase, or omit content. It is used to build search passages, so
+   completeness matters more than brevity.
+7. Return strictly the JSON object described by the response schema.`;
+}
+
+async function extractOneProject(
+	ai: GoogleGenAI,
+	input: { fileBytes: Buffer; mimeType: string },
+	discovery: ProjectDiscovery,
+): Promise<ProjectDraft> {
+	const response = await ai.models.generateContent({
+		model: MODEL,
+		contents: [
+			{
+				role: "user",
+				parts: [
+					{ text: buildDeepExtractionInstructions(discovery) },
+					{
+						inlineData: {
+							mimeType: input.mimeType,
+							data: input.fileBytes.toString("base64"),
+						},
+					},
+				],
+			},
+		],
+		config: {
+			responseMimeType: "application/json",
+			responseSchema: projectDraftGeminiSchema,
+		},
+	});
+
+	const raw = response.text;
+	if (!raw) throw new Error("gemini: deep extraction got an empty response");
+
+	const result = ProjectDraftSchema.safeParse(JSON.parse(raw));
+	if (!result.success) {
+		throw new Error(
+			`gemini: deep extraction response failed validation: ${result.error.message}`,
+		);
+	}
+	// The discovery pass's page range/sections are more reliable than asking
+	// the deep-extraction call to restate them — keep them authoritative.
+	return {
+		...result.data,
+		sourcePageRangeStart: discovery.sourcePageRangeStart,
+		sourcePageRangeEnd: discovery.sourcePageRangeEnd,
+		sourceSections: discovery.sourceSections,
+	};
+}
+
+function toRetryableServiceError(error: unknown): Error | null {
+	if (error instanceof ApiError && error.status >= 500) {
+		return new Error(
+			"The AI document analysis service is temporarily unavailable. Please try again in a few minutes.",
+		);
+	}
+	if (error instanceof ApiError && error.status === 429) {
+		return new Error(
+			"The AI document analysis service is busy right now. Please try again shortly.",
+		);
+	}
+	return null;
+}
 
 /**
  * Sends document bytes (a PDF, per Gemini's native document understanding)
  * to Gemini and extracts every distinct project it contains as a
- * ProjectDraft. Returns [] if Gemini is unconfigured, or if a successful
- * response was empty/failed validation (genuinely "nothing extractable").
- * Throws if the API call itself failed (already retried internally) — that's
- * a service outage, not "this document has no projects", and callers should
- * treat it as a retryable failure rather than a content judgment.
+ * ProjectDraft, via a discovery pass (find project boundaries) followed by
+ * one dedicated deep-extraction call per discovered project (see the two
+ * stages above). Returns [] if Gemini is unconfigured, or if discovery
+ * genuinely found nothing extractable. Throws if the underlying API calls
+ * failed (already retried internally) in a way that means the service itself
+ * was unreachable — that's a retryable outage, not "this document has no
+ * projects", and callers should treat it as such.
  */
 export async function extractProjectsFromDocument(input: {
 	fileBytes: Buffer;
@@ -305,6 +476,104 @@ export async function extractProjectsFromDocument(input: {
 }): Promise<ProjectDraft[]> {
 	const ai = getClient();
 	if (!ai) return [];
+
+	let discoveries: ProjectDiscovery[];
+	try {
+		discoveries = await discoverProjects(ai, input);
+	} catch (error) {
+		console.error("gemini: discoverProjects failed", error);
+		const retryable = toRetryableServiceError(error);
+		if (retryable) throw retryable;
+		throw error instanceof Error
+			? error
+			: new Error("Document analysis failed.");
+	}
+	if (discoveries.length === 0) return [];
+
+	const settled = await Promise.allSettled(
+		discoveries.map((discovery) => extractOneProject(ai, input, discovery)),
+	);
+
+	const drafts: ProjectDraft[] = [];
+	const failures: unknown[] = [];
+	for (const result of settled) {
+		if (result.status === "fulfilled") {
+			drafts.push(result.value);
+		} else {
+			failures.push(result.reason);
+			console.error(
+				"gemini: per-project deep extraction failed",
+				result.reason,
+			);
+		}
+	}
+
+	// If every single discovered project failed, and at least one of those
+	// failures was a genuine service outage (not a content/validation issue),
+	// surface that as a retryable failure rather than silently reporting
+	// "no projects found" for what was actually Gemini being unreachable.
+	if (drafts.length === 0 && failures.length > 0) {
+		for (const failure of failures) {
+			const retryable = toRetryableServiceError(failure);
+			if (retryable) throw retryable;
+		}
+	}
+
+	return drafts;
+}
+
+// --- Backfill: transcription only, for projects extracted before fullText --
+// existed. Deliberately separate from extractOneProject/deep extraction: it
+// returns ONLY fullText, never touching title/abstract/methodology/etc, so
+// backfilling cannot silently overwrite fields a student has since reviewed
+// or edited in the dashboard.
+
+const transcriptionGeminiSchema = {
+	type: Type.OBJECT,
+	properties: { fullText: stringField },
+	required: ["fullText"],
+};
+
+function buildTranscriptionInstructions(hint: {
+	title: string | null;
+	sourcePageRangeStart: number | null;
+	sourcePageRangeEnd: number | null;
+	sourceSections: string[] | null;
+}): string {
+	return `This document may contain multiple projects. Transcribe ONLY the single
+project described below — ignore all other projects' content entirely.
+
+TARGET PROJECT:
+- Title: ${hint.title ?? "(unknown)"}
+- Page range: ${hint.sourcePageRangeStart ?? "?"}-${hint.sourcePageRangeEnd ?? "?"}
+- Sections: ${hint.sourceSections?.join(", ") ?? "(unknown)"}
+
+Populate "fullText" with a COMPLETE, FAITHFUL VERBATIM TRANSCRIPTION of this
+project's own pages/sections — every paragraph, in reading order, exactly as
+written in the source (excluding running headers, footers, and bare page
+numbers). This is a transcription, not a summary: do not shorten, paraphrase,
+or omit content. If you cannot confidently identify this project's own text in
+the document, return null rather than transcribing the wrong project.
+
+Return strictly the JSON object described by the response schema.`;
+}
+
+/**
+ * Backfills `fullText` for a project extracted before that field existed, by
+ * re-reading its already-uploaded source document. Best-effort: returns null
+ * (never throws) on any failure, since this is a maintenance/backfill path,
+ * not a user-facing request — a failure should just skip that project.
+ */
+export async function transcribeProjectFullText(input: {
+	fileBytes: Buffer;
+	mimeType: string;
+	title: string | null;
+	sourcePageRangeStart: number | null;
+	sourcePageRangeEnd: number | null;
+	sourceSections: string[] | null;
+}): Promise<string | null> {
+	const ai = getClient();
+	if (!ai) return null;
 	try {
 		const response = await ai.models.generateContent({
 			model: MODEL,
@@ -312,7 +581,7 @@ export async function extractProjectsFromDocument(input: {
 				{
 					role: "user",
 					parts: [
-						{ text: EXTRACTION_INSTRUCTIONS },
+						{ text: buildTranscriptionInstructions(input) },
 						{
 							inlineData: {
 								mimeType: input.mimeType,
@@ -324,51 +593,18 @@ export async function extractProjectsFromDocument(input: {
 			],
 			config: {
 				responseMimeType: "application/json",
-				responseSchema: projectDraftListGeminiSchema,
+				responseSchema: transcriptionGeminiSchema,
 			},
 		});
-
 		const raw = response.text;
-		if (!raw) {
-			console.error(
-				"gemini: extractProjectsFromDocument got an empty response",
-			);
-			return [];
-		}
-
-		const parsedJson = JSON.parse(raw);
-		// Gemini's responseSchema guarantees JSON *shape*, not our app-level
-		// semantic constraints (e.g. abstractSource enum, no stray fields), so
-		// validate independently before trusting it.
-		const result = ProjectDraftListSchema.safeParse(parsedJson);
-		if (!result.success) {
-			console.error(
-				"gemini: extractProjectsFromDocument response failed validation",
-				result.error.message,
-			);
-			return [];
-		}
-		return result.data.projects;
+		if (!raw) return null;
+		const parsed = JSON.parse(raw) as { fullText?: unknown };
+		return typeof parsed.fullText === "string" && parsed.fullText.trim()
+			? parsed.fullText
+			: null;
 	} catch (error) {
-		console.error("gemini: extractProjectsFromDocument failed", error);
-		// A response we got back but couldn't use (empty / malformed JSON) means
-		// "nothing extractable" — but a failed API call (already retried by the
-		// client above) means the service itself was unreachable, which is a
-		// meaningfully different failure the caller should surface distinctly
-		// rather than telling the user their document had no projects in it.
-		if (error instanceof ApiError && error.status >= 500) {
-			throw new Error(
-				"The AI document analysis service is temporarily unavailable. Please try again in a few minutes.",
-			);
-		}
-		if (error instanceof ApiError && error.status === 429) {
-			throw new Error(
-				"The AI document analysis service is busy right now. Please try again shortly.",
-			);
-		}
-		throw error instanceof Error
-			? error
-			: new Error("Document analysis failed.");
+		console.error("gemini: transcribeProjectFullText failed", error);
+		return null;
 	}
 }
 

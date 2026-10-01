@@ -8,6 +8,7 @@ import {
 	streamAdvisorAgent,
 } from "./advisor-agent.server";
 import { rememberConversationTurn } from "./mem0";
+import { getStudentProfile } from "./profile.server";
 
 export type AdvisorConversationSummary = {
 	id: string;
@@ -210,19 +211,21 @@ async function persistTurn(input: {
 
 export async function sendAdvisorMessage(input: {
 	userId: string;
-	firstName: string;
 	conversationId?: string;
 	content: string;
 }) {
-	const { conversationId, history } = await resolveConversation({
-		userId: input.userId,
-		conversationId: input.conversationId,
-		firstUserMessage: input.content,
-	});
+	const [{ conversationId, history }, profile] = await Promise.all([
+		resolveConversation({
+			userId: input.userId,
+			conversationId: input.conversationId,
+			firstUserMessage: input.content,
+		}),
+		getStudentProfile(input.userId),
+	]);
 
 	const { reply: assistantContent, citations } = await runAdvisorAgent({
 		userId: input.userId,
-		firstName: input.firstName,
+		profile,
 		history,
 		message: input.content,
 	});
@@ -253,10 +256,14 @@ export type AdvisorStreamMessageEvent =
  */
 export async function* streamAdvisorMessage(input: {
 	userId: string;
-	firstName: string;
 	conversationId?: string;
 	content: string;
 }): AsyncGenerator<AdvisorStreamMessageEvent> {
+	// Started concurrently with conversation resolution, not awaited together:
+	// the conversation id must still reach the client as soon as possible (see
+	// below), so this is only actually awaited right before it's needed.
+	const profilePromise = getStudentProfile(input.userId);
+
 	const { conversationId, history } = await resolveConversation({
 		userId: input.userId,
 		conversationId: input.conversationId,
@@ -269,7 +276,7 @@ export async function* streamAdvisorMessage(input: {
 
 	for await (const event of streamAdvisorAgent({
 		userId: input.userId,
-		firstName: input.firstName,
+		profile: await profilePromise,
 		history,
 		message: input.content,
 	})) {

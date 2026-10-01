@@ -164,6 +164,7 @@ export async function processDocument(input: {
 					extractionEvidence: draft.evidence
 						? { evidence: draft.evidence }
 						: null,
+					fullText: draft.fullText,
 					status: "draft",
 				});
 			}
@@ -188,6 +189,7 @@ export async function processDocument(input: {
 						results: draft.results,
 						conclusion: draft.conclusion,
 					},
+					fullText: draft.fullText,
 				});
 			}),
 		);

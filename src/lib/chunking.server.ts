@@ -67,6 +67,62 @@ export function buildProjectChunkDrafts(
 	return drafts;
 }
 
+// A short, heading-shaped line (numbered like "3.2 METHODOLOGY", or a bare
+// all-caps title like "RESULTS") starting a new section in a verbatim source
+// transcription. Used only to *label* chunks for citation traceability — a
+// missed heading just falls back to the generic "Source text" label below,
+// it never blocks chunking.
+const HEADING_PATTERN = /^(?:\d+(?:\.\d+)*\s+)?[A-Z][A-Z0-9 ,'&/-]{2,79}$/;
+
+function looksLikeHeading(line: string): boolean {
+	const trimmed = line.trim();
+	if (trimmed.length < 3 || trimmed.length > 80) return false;
+	return HEADING_PATTERN.test(trimmed);
+}
+
+/**
+ * Splits a project's full verbatim source text (Gemini's `fullText` field —
+ * see gemini.server.ts) into retrieval-sized passages for late-chunked
+ * embedding. Unlike buildProjectChunkDrafts, which only ever chunks the six
+ * short structured summary fields, this operates on the complete
+ * transcription, so retrieval can surface detail (datasets, specific
+ * limitations, implementation choices, etc.) that a compressed "Methodology"
+ * or "Results" field never captured in the first place.
+ */
+export function buildFullTextChunkDrafts(
+	fullText: string,
+): ProjectChunkDraft[] {
+	const lines = fullText.replace(/\r\n/g, "\n").split("\n");
+
+	const segments: { sectionTitle: string; text: string }[] = [];
+	let currentTitle = "Source text";
+	let currentLines: string[] = [];
+
+	function flush() {
+		const text = currentLines.join(" ").replace(/\s+/g, " ").trim();
+		if (text) segments.push({ sectionTitle: currentTitle, text });
+		currentLines = [];
+	}
+
+	for (const line of lines) {
+		if (looksLikeHeading(line)) {
+			flush();
+			currentTitle = line.trim();
+		} else {
+			currentLines.push(line);
+		}
+	}
+	flush();
+
+	const drafts: ProjectChunkDraft[] = [];
+	for (const segment of segments) {
+		for (const content of splitLongText(segment.text)) {
+			drafts.push({ sectionTitle: segment.sectionTitle, content });
+		}
+	}
+	return drafts;
+}
+
 /** Combines a project's fields (in a fixed, citation-friendly order) into chunk sources. */
 export function projectFieldsToChunkSources(fields: {
 	abstract?: string | null;

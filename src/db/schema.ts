@@ -268,6 +268,13 @@ export const project = pgTable(
 		conclusion: text("conclusion"),
 		projectYear: integer("project_year"),
 
+		// Full verbatim text of this project's own source pages (not the short
+		// structured summary fields above) — the basis for late-chunked, full-
+		// document-aware chunk embeddings. Null for manually-entered projects,
+		// which have no source document to transcribe; they keep chunking from
+		// structured fields (see chunking.server.ts).
+		fullText: text("full_text"),
+
 		// Abstract provenance (section 7): the displayed `abstract` is either the
 		// explicit one found in the source, or one Gemini generated because none
 		// existed or the existing text was inadequate/non-academic.

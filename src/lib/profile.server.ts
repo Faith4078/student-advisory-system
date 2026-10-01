@@ -20,11 +20,15 @@ export type ProfileDetails = {
 	interests: string[];
 };
 
-export async function getProfile(userId: string): Promise<{
-	profile: ProfileDetails;
-	memories: AdvisorMemory[];
-	memoriesEnabled: boolean;
-}> {
+/**
+ * The DB-only half of `getProfile` — no mem0 call. Used by the AI advisor,
+ * which needs this on every chat turn and already runs its own separate
+ * mem0 memory recall; fetching the full memory list here too would be a
+ * redundant mem0 round-trip for data the advisor isn't using.
+ */
+export async function getStudentProfile(
+	userId: string,
+): Promise<ProfileDetails> {
 	const [profile] = await db
 		.select({
 			id: user.id,
@@ -42,9 +46,18 @@ export async function getProfile(userId: string): Promise<{
 		.limit(1);
 
 	if (!profile) throw new Error("Profile not found.");
+	return profile;
+}
 
-	const memories = await listUserMemories(userId);
-
+export async function getProfile(userId: string): Promise<{
+	profile: ProfileDetails;
+	memories: AdvisorMemory[];
+	memoriesEnabled: boolean;
+}> {
+	const [profile, memories] = await Promise.all([
+		getStudentProfile(userId),
+		listUserMemories(userId),
+	]);
 	return { profile, memories, memoriesEnabled: isMem0Configured() };
 }
 

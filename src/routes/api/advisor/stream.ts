@@ -59,15 +59,12 @@ export const Route = createFileRoute("/api/advisor/stream")({
 
 				const encoder = new TextEncoder();
 				const user = session.user;
-				const firstName =
-					user.firstName || user.name.split(" ")[0] || "Student";
 
 				const stream = new ReadableStream<Uint8Array>({
 					async start(controller) {
 						try {
 							for await (const event of streamAdvisorMessage({
 								userId: user.id,
-								firstName,
 								conversationId,
 								content,
 							})) {

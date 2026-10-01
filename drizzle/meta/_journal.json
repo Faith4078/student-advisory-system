@@ -57,6 +57,13 @@
       "when": 1790578658057,
       "tag": "0007_tan_wolf_cub",
       "breakpoints": true
+    },
+    {
+      "idx": 8,
+      "version": "7",
+      "when": 1790801474359,
+      "tag": "0008_eager_nova",
+      "breakpoints": true
     }
   ]
 }

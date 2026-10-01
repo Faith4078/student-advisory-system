@@ -85,7 +85,7 @@ export function DashboardSidebar({
 						<MessageSquareText size={18} /> AI Advisor
 					</Link>
 					<Link to="/dashboard/upload">
-						<UploadCloud size={18} /> Submit project
+						<UploadCloud size={18} /> Upload project
 					</Link>
 					<Link to="/dashboard/my-projects">
 						<FolderKanban size={18} /> My projects

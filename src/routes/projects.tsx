@@ -12,7 +12,7 @@ import {
 	SlidersHorizontal,
 	X,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { SiteFooter } from "../components/site-footer";
 import { SiteHeader } from "../components/site-header";
 import { getSession } from "../lib/auth.functions";
@@ -63,7 +63,13 @@ export const Route = createFileRoute("/projects")({
 		]);
 		return { isSignedIn, results };
 	},
-	pendingMs: 300,
+	// This is only a safety net for a "cold" navigation that has no previous
+	// results to keep showing — e.g. landing directly on a shared
+	// /projects?q=... link. Search-driven navigations (typing, filters,
+	// pagination) go through preloadAndNavigate in the component below, which
+	// warms the loader's cache before navigating so they resolve well under
+	// this threshold and never show pendingComponent at all.
+	pendingMs: 800,
 	pendingComponent: ProjectsPending,
 	component: ProjectsPage,
 });
@@ -92,23 +98,50 @@ function ProjectsPage() {
 	const router = useRouter();
 	const [queryDraft, setQueryDraft] = useState(search.q ?? "");
 	const [filtersOpen, setFiltersOpen] = useState(false);
+	// Guards against a slow, superseded request's result landing after a
+	// faster, more recent one — see preloadAndNavigate below.
+	const requestSeqRef = useRef(0);
 
 	useEffect(() => {
 		setQueryDraft(search.q ?? "");
 	}, [search.q]);
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: debounce timer should only reset when the draft text changes, not on every navigate/search.q identity change
+	// The actual fix for "the page goes blank while typing": TanStack Router's
+	// pendingComponent fires whenever a navigation's loader is still running
+	// at `pendingMs`, no matter how briefly — and a real hybrid search (2 Jina
+	// API round-trips + 3 DB queries, see rankProjectsByQuery in
+	// projects.server.ts) routinely takes longer than that. The fix isn't a
+	// bigger pendingMs; it's to never let a *search-driven* navigation be the
+	// thing the user is waiting on at all. `router.preloadRoute` runs the
+	// loader and caches its result (see router.tsx's defaultPreloadStaleTime)
+	// without touching what's currently rendered, so the existing results
+	// stay on screen, untouched, for as long as the new ones take — no
+	// loading affordance at all, by design. Only once the new data already
+	// exists do we `navigate()`, which then resolves against the warm cache
+	// and finishes well under any pendingMs threshold, so pendingComponent
+	// never has a reason to show either.
+	async function preloadAndNavigate(nextSearch: ProjectsSearch) {
+		const seq = ++requestSeqRef.current;
+		try {
+			await router.preloadRoute({ to: Route.fullPath, search: nextSearch });
+		} catch {
+			// A failed preload still gets its own error surfaced by the normal
+			// navigate()/loader error path below — nothing to do here but avoid
+			// an unhandled rejection.
+		}
+		if (requestSeqRef.current !== seq) return; // superseded by a newer search
+		navigate({ search: nextSearch, replace: true });
+	}
+
+	// biome-ignore lint/correctness/useExhaustiveDependencies: debounce timer should only reset when the draft text changes, not on every preloadAndNavigate/search.q identity change
 	useEffect(() => {
 		const timer = setTimeout(() => {
 			if ((search.q ?? "") === queryDraft.trim()) return;
-			navigate({
-				search: (prev) => ({
-					...prev,
-					q: queryDraft.trim() || undefined,
-					page: 1,
-				}),
-				replace: true,
-			}).then(() => router.invalidate());
+			preloadAndNavigate({
+				...search,
+				q: queryDraft.trim() || undefined,
+				page: 1,
+			});
 		}, 350);
 		return () => clearTimeout(timer);
 	}, [queryDraft]);
@@ -117,34 +150,24 @@ function ProjectsPage() {
 		key: keyof ProjectsSearch,
 		value: string | number | undefined,
 	) {
-		navigate({
-			search: (prev) => ({
-				...prev,
-				[key]: value === "" ? undefined : value,
-				page: 1,
-			}),
-			replace: true,
-		}).then(() => router.invalidate());
+		preloadAndNavigate({
+			...search,
+			[key]: value === "" ? undefined : value,
+			page: 1,
+		});
 	}
 
 	function clearFilter(key: keyof ProjectsSearch) {
-		navigate({
-			search: (prev) => ({ ...prev, [key]: undefined, page: 1 }),
-			replace: true,
-		}).then(() => router.invalidate());
+		preloadAndNavigate({ ...search, [key]: undefined, page: 1 });
 	}
 
 	function clearAllFilters() {
-		navigate({ search: { page: 1 }, replace: true }).then(() =>
-			router.invalidate(),
-		);
+		preloadAndNavigate({ page: 1 });
 		setQueryDraft("");
 	}
 
 	function goToPage(page: number) {
-		navigate({ search: (prev) => ({ ...prev, page }), replace: true }).then(
-			() => router.invalidate(),
-		);
+		preloadAndNavigate({ ...search, page });
 	}
 
 	const activeFilterEntries = FILTER_FIELDS.filter(({ key }) => search[key]);
@@ -173,7 +196,7 @@ function ProjectsPage() {
 
 					<div className="projects-toolbar">
 						<label className="projects-search">
-							<Search size={18} />
+							<Search size={18} aria-hidden="true" />
 							<input
 								value={queryDraft}
 								onChange={(event) => setQueryDraft(event.target.value)}

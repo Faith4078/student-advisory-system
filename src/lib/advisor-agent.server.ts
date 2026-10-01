@@ -32,7 +32,12 @@ import {
 	Type,
 } from "@google/genai";
 import { cacheAside } from "./cache.server";
-import { recallRelevantMemories } from "./mem0";
+import {
+	forgetMatchingMemories,
+	recallRelevantMemories,
+	rememberExplicitFact,
+} from "./mem0";
+import type { ProfileDetails } from "./profile.server";
 import {
 	getProjectStatistics,
 	getPublicProject,
@@ -225,6 +230,38 @@ const TOOL_DECLARATIONS: FunctionDeclaration[] = [
 			"Aggregate statistics over the published catalog: totals by department, project type, and year. Use for 'how many projects...' style questions.",
 		parameters: { type: Type.OBJECT, properties: {} },
 	},
+	{
+		name: "remember_about_student",
+		description:
+			"Save a fact about this student for future conversations — call this whenever the student asks you to remember something, or states a lasting preference/fact unprompted (e.g. a project interest, a constraint, a correction to something you got wrong about them). If it conflicts with something already remembered, it replaces that memory rather than duplicating it, so this is also how you update a previously-remembered fact.",
+		parameters: {
+			type: Type.OBJECT,
+			properties: {
+				fact: {
+					type: Type.STRING,
+					description:
+						"The fact to remember, written as a short, clear, standalone statement (e.g. 'Interested in applying machine learning to agriculture').",
+				},
+			},
+			required: ["fact"],
+		},
+	},
+	{
+		name: "forget_about_student",
+		description:
+			"Delete previously-remembered fact(s) about this student that match a description — call this whenever the student asks you to forget, delete, or stop remembering something specific.",
+		parameters: {
+			type: Type.OBJECT,
+			properties: {
+				description: {
+					type: Type.STRING,
+					description:
+						"A natural-language description of what to forget (e.g. 'that I'm interested in blockchain').",
+				},
+			},
+			required: ["description"],
+		},
+	},
 ];
 
 // Tool results are read-only queries over the PUBLIC catalog — the same
@@ -258,21 +295,28 @@ function buildToolCacheKey(
 async function runTool(
 	name: string,
 	args: Record<string, unknown>,
+	userId: string,
 ): Promise<ToolResult> {
 	const ttlSeconds = TOOL_CACHE_TTL_SECONDS[name];
 	if (ttlSeconds) {
+		// Cached tools are read-only catalog queries — identical for every
+		// caller, so they're safe to cache by (name, args) alone. The two
+		// memory-mutation tools below are never in this map (see its
+		// declaration), since they must always execute for real and are
+		// inherently per-user.
 		return cacheAside({
 			key: buildToolCacheKey(name, args),
 			ttlSeconds,
-			compute: () => runToolUncached(name, args),
+			compute: () => runToolUncached(name, args, userId),
 		});
 	}
-	return runToolUncached(name, args);
+	return runToolUncached(name, args, userId);
 }
 
 async function runToolUncached(
 	name: string,
 	args: Record<string, unknown>,
+	userId: string,
 ): Promise<ToolResult> {
 	switch (name) {
 		case "search_projects": {
@@ -354,6 +398,35 @@ async function runToolUncached(
 			const stats = await getProjectStatistics();
 			return { output: stats, citations: [{ type: "statistics" }] };
 		}
+		case "remember_about_student": {
+			const fact = typeof args.fact === "string" ? args.fact.trim() : "";
+			if (!fact) {
+				return {
+					output: { saved: false, error: "No fact was provided." },
+					citations: [],
+				};
+			}
+			const saved = await rememberExplicitFact({ userId, fact });
+			return { output: { saved, fact }, citations: [] };
+		}
+		case "forget_about_student": {
+			const description =
+				typeof args.description === "string" ? args.description.trim() : "";
+			if (!description) {
+				return {
+					output: { deleted: [], error: "No description was provided." },
+					citations: [],
+				};
+			}
+			const deleted = await forgetMatchingMemories({ userId, description });
+			return {
+				output: {
+					deletedCount: deleted.length,
+					deleted: deleted.map((entry) => entry.memory),
+				},
+				citations: [],
+			};
+		}
 		default:
 			return { output: { error: `Unknown tool: ${name}` }, citations: [] };
 	}
@@ -366,9 +439,15 @@ export type AdvisorTurnMessage = {
 	content: string;
 };
 
-const SYSTEM_INSTRUCTIONS = `You are the AI Advisor for a university final-year project discovery
-platform. You help students explore published past projects and think
-through their own project ideas.
+const SYSTEM_INSTRUCTIONS = `You are the AI Academic Advisor for undergraduate students in the Department
+of Computer Science and Engineering. You are not limited to final-year or
+capstone students — you support undergraduates at any level with their
+academic needs, with a particular focus on discovering and developing
+project ideas using the department's published project catalog. If a student
+greets you or asks who you are, introduce yourself warmly and briefly as
+their academic advisor, here to help with whatever they need — project
+discovery, scoping an idea, or general academic questions — not as a
+"final-year project" specialist.
 
 Rules:
 - Ground every factual claim about a specific project in a tool call result
@@ -377,12 +456,44 @@ Rules:
 - When discussing a specific project, call get_project or
   search_project_chunks first rather than relying on search_projects'
   short summaries alone.
+- Tool results include internal identifiers (fields like "id", "projectId",
+  "chunkId", "documentId") — these exist ONLY so you can make follow-up tool
+  calls (e.g. fetching more detail about a project you just found). NEVER
+  include a raw id in your reply text, in any form (not even labelled "Project
+  ID:" or in parentheses) — refer to a project, document, or chunk by its
+  title or section name only. The citations shown alongside your reply
+  already link each source to the right project, so the student never needs
+  an id to find it.
 - Keep answers focused and actionable: for open-ended "help me pick a
   project" questions, ask a clarifying question or offer a short structured
   set of options rather than a long essay.
-- You may be given "Relevant memory about this student" — background from
-  earlier conversations. Use it to personalize your answer, but never
-  present it as something you just looked up.`;
+- You are always given this student's profile (name, matric number,
+  department, bio, interests) below — you already know these, so never ask
+  for them or treat them as something you "looked up"; just use them
+  naturally. Any field shown as "not provided" genuinely isn't set, so ask
+  rather than guess if it becomes relevant.
+- You may also be given "Relevant memory about this student" — specific
+  facts learned from earlier conversations. Use it to personalize your
+  answer, but never present it as something you just looked up.
+- When the student asks you to remember, forget, or update a fact about
+  them, actually call remember_about_student or forget_about_student rather
+  than just replying as if you had — then confirm, briefly and specifically,
+  what you did (e.g. what was saved, or what was deleted and how many
+  matches were found). If forget_about_student finds nothing to delete, say
+  so rather than claiming success.`;
+
+function formatStudentProfileBlock(profile: ProfileDetails): string {
+	const matricNumber = profile.displayUsername || profile.username || "not set";
+	const interests = profile.interests.length
+		? profile.interests.join(", ")
+		: "not provided";
+	return `Student profile (always true for this conversation — not retrieved via a tool, just known):
+- Name: ${profile.firstName} ${profile.lastName}
+- Matric number: ${matricNumber}
+- Department: ${profile.department}
+- Bio: ${profile.bio || "not provided"}
+- Interests: ${interests}`;
+}
 
 export type AdvisorStreamEvent =
 	| { type: "delta"; text: string }
@@ -402,7 +513,7 @@ export type AdvisorStreamEvent =
  */
 export async function* streamAdvisorAgent(input: {
 	userId: string;
-	firstName: string;
+	profile: ProfileDetails;
 	history: AdvisorTurnMessage[];
 	message: string;
 }): AsyncGenerator<AdvisorStreamEvent> {
@@ -473,7 +584,7 @@ export async function* streamAdvisorAgent(input: {
 				model: MODEL,
 				contents,
 				config: {
-					systemInstruction: `${SYSTEM_INSTRUCTIONS}\n\nThe student's first name is ${input.firstName}.`,
+					systemInstruction: `${SYSTEM_INSTRUCTIONS}\n\n${formatStudentProfileBlock(input.profile)}`,
 					tools: [{ functionDeclarations: TOOL_DECLARATIONS }],
 				},
 			});
@@ -547,7 +658,7 @@ export async function* streamAdvisorAgent(input: {
 						};
 					}
 
-					const result = await runTool(name, args);
+					const result = await runTool(name, args, input.userId);
 					// Scan retrieved content itself (not just the call arguments)
 					// before it re-enters the model's context — this is the
 					// "retrieved/tool output" prompt-injection point flagged in
@@ -622,7 +733,7 @@ export async function* streamAdvisorAgent(input: {
  */
 export async function runAdvisorAgent(input: {
 	userId: string;
-	firstName: string;
+	profile: ProfileDetails;
 	history: AdvisorTurnMessage[];
 	message: string;
 }): Promise<{ reply: string; citations: AdvisorCitation[] }> {

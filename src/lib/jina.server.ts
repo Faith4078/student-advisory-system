@@ -107,6 +107,73 @@ export async function embedPassages(texts: string[]): Promise<number[][]> {
 	return embed(texts, "retrieval.passage");
 }
 
+// Jina's late-chunking mode: pass the ordered chunks of ONE document as
+// `input` with `late_chunking: true`. Jina concatenates them internally,
+// encodes the full concatenation with joint attention (so each chunk's
+// embedding is aware of the whole document's context — resolving pronouns,
+// cross-references, etc., that plain per-chunk embedding loses), then pools
+// back into one embedding per input chunk. Confirmed against Jina's public
+// API docs: https://jina.ai — late_chunking requires the WHOLE request's
+// input tokens to stay under 8192.
+const LATE_CHUNKING_MAX_CHARS_PER_BATCH = 24_000; // conservative vs the 8192-token cap; no local tokenizer to measure exactly
+
+function batchByCharBudget(texts: string[], maxChars: number): string[][] {
+	const batches: string[][] = [];
+	let current: string[] = [];
+	let currentChars = 0;
+	for (const text of texts) {
+		if (current.length > 0 && currentChars + text.length > maxChars) {
+			batches.push(current);
+			current = [];
+			currentChars = 0;
+		}
+		current.push(text);
+		currentChars += text.length;
+	}
+	if (current.length > 0) batches.push(current);
+	return batches;
+}
+
+async function embedLateChunkedBatch(texts: string[]): Promise<number[][]> {
+	try {
+		const result = (await postWithRetry(EMBEDDINGS_URL, {
+			model: EMBEDDING_MODEL,
+			task: "retrieval.passage",
+			late_chunking: true,
+			input: texts,
+		})) as EmbeddingsResponse;
+		return result.data
+			.slice()
+			.sort((a, b) => a.index - b.index)
+			.map((entry) => entry.embedding);
+	} catch (error) {
+		console.error("jina: failed to embed late-chunked passages", error);
+		throw error instanceof Error
+			? error
+			: new Error("jina: failed to embed late-chunked passages");
+	}
+}
+
+/**
+ * Embeds the ordered chunks of a single document's full text with late
+ * chunking, so each chunk's embedding carries whole-document context instead
+ * of being encoded in isolation. Splits into multiple batches if the chunk
+ * set would exceed Jina's per-request token budget for late chunking — a
+ * project whose text spans more than one batch loses cross-batch context at
+ * the seam, which is an accepted tradeoff against exceeding the hard limit.
+ */
+export async function embedPassagesLateChunked(
+	texts: string[],
+): Promise<number[][]> {
+	if (texts.length === 0) return [];
+	const batches = batchByCharBudget(texts, LATE_CHUNKING_MAX_CHARS_PER_BATCH);
+	const results: number[][] = [];
+	for (const batch of batches) {
+		results.push(...(await embedLateChunkedBatch(batch)));
+	}
+	return results;
+}
+
 export async function embedQuery(text: string): Promise<number[]> {
 	const [vector] = await embed([text], "retrieval.query");
 	if (!vector) {

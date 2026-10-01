@@ -113,6 +113,16 @@ function toVectorLiteral(vector: number[]): string {
 const SEMANTIC_CANDIDATE_LIMIT = 40;
 const LEXICAL_CANDIDATE_LIMIT = 40;
 const RERANK_TOP_N = 20;
+// Cosine distance ranges 0 (identical) to 2 (opposite); 1 is orthogonal
+// ("unrelated"). Candidates farther than this are not meaningfully related to
+// the query and must not be treated as search results just because they were
+// the *closest available* vectors — nearest-neighbour search always returns
+// `limit` rows regardless of whether any of them are actually relevant.
+const SEMANTIC_DISTANCE_THRESHOLD = 0.6;
+// jina-reranker-v2 relevance_score is a per-document relevance probability in
+// [0, 1]. A candidate the reranker itself scores below this bar is judged
+// irrelevant to the query and must be dropped, not merely reordered.
+const MIN_RERANK_SCORE = 0.3;
 const RETRIEVAL_VERSION = "hybrid-rrf-v1";
 const EMBEDDING_VERSION = "jina-embeddings-v3";
 const RERANKER_VERSION = "jina-reranker-v2-base-multilingual";
@@ -153,6 +163,7 @@ async function fetchSemanticCandidateIds(
 		.innerJoin(project, eq(projectChunk.projectId, project.id))
 		.where(and(where, sql`${projectChunk.embedding} is not null`))
 		.groupBy(project.id)
+		.having(sql`${distance} < ${SEMANTIC_DISTANCE_THRESHOLD}`)
 		.orderBy(distance)
 		.limit(limit);
 	return rows.map((row) => row.id);
@@ -212,7 +223,6 @@ async function rankProjectsByQuery(
 			if (fusedIds.length === 0) return fusedIds;
 
 			const rerankHead = fusedIds.slice(0, RERANK_TOP_N);
-			const rerankTail = fusedIds.slice(RERANK_TOP_N);
 
 			try {
 				const headRows = await db
@@ -233,15 +243,28 @@ async function rankProjectsByQuery(
 						`${row.title ?? ""}\n${row.abstract ?? ""}`.trim() || "(untitled)",
 				);
 				const reranked = await rerank({ query: filters.q, documents });
-				const rerankedIds = reranked
+
+				// Distinguish "the reranker scored this below the relevance bar"
+				// (drop it — it is not a match) from "the reranker didn't return a
+				// score for this id at all" (a degenerate API response, not a
+				// relevance judgment — keep it defensively, in fused order).
+				const scoredIds = new Set(
+					reranked
+						.map((entry) => orderedHeadRows[entry.index]?.id)
+						.filter((id): id is string => Boolean(id)),
+				);
+				const relevantRerankedIds = reranked
+					.filter((entry) => entry.score >= MIN_RERANK_SCORE)
 					.map((entry) => orderedHeadRows[entry.index]?.id)
 					.filter((id): id is string => Boolean(id));
-				// If the reranker returned fewer results than we sent, keep any
-				// missing head ids at the end of the head (in fused order) rather
-				// than silently dropping them.
-				const rerankedSet = new Set(rerankedIds);
-				const missingFromHead = rerankHead.filter((id) => !rerankedSet.has(id));
-				return [...rerankedIds, ...missingFromHead, ...rerankTail];
+				const missingFromReranker = rerankHead.filter(
+					(id) => !scoredIds.has(id),
+				);
+				// rerankTail (beyond RERANK_TOP_N) is intentionally dropped, not
+				// appended: those candidates were never relevance-checked by the
+				// reranker, so including them unconditionally is what previously
+				// made "search results" degrade into "every published project."
+				return [...relevantRerankedIds, ...missingFromReranker];
 			} catch (error) {
 				console.error(
 					"projects: reranking failed, keeping RRF fusion order",
@@ -500,13 +523,19 @@ export async function updateProject(
 			methodology: project.methodology,
 			results: project.results,
 			conclusion: project.conclusion,
+			fullText: project.fullText,
 		});
 	if (!updated) return;
+	// Pass fullText through so editing an AI-extracted project's fields (e.g.
+	// correcting the abstract) re-chunks from its full verbatim source text
+	// again, rather than silently dropping back to the shorter structured-
+	// field chunking the first edit would otherwise cause.
 	await reindexProjectChunks({
 		projectId,
 		documentId: updated.sourceDocumentId,
 		pageNumber: updated.sourcePageRangeStart,
 		fields: updated,
+		fullText: updated.fullText,
 	});
 }
 
@@ -611,7 +640,15 @@ export async function getPublicProject(projectId: string) {
 		.from(project)
 		.where(and(eq(project.id, projectId), eq(project.status, "published")))
 		.limit(1);
-	return row ?? null;
+	if (!row) return null;
+	// fullText is an internal indexing artifact (the source for late-chunked
+	// embeddings), not user-facing content — it must never be forwarded
+	// whole into the advisor's tool output (this is the "get one project's
+	// full detail" tool; stuffing a whole verbatim transcription into every
+	// such call is exactly the context-bloat chunking exists to avoid) or
+	// down to the public project page.
+	const { fullText: _fullText, ...rest } = row;
+	return rest;
 }
 
 export async function getPublicProjectLinks(projectId: string) {
