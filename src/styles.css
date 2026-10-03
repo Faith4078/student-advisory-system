@@ -97,7 +97,7 @@ h1,h2,h3 { margin:0; font-family:var(--font-display); letter-spacing:-.045em; }
 .section-heading.centered { max-width:720px; margin:0 auto 58px; text-align:center; }
 .section-kicker { display:block; margin-bottom:18px; color:var(--purple); font-size:.7rem; font-weight:800; letter-spacing:.17em; }
 .section-heading h2,.disciplines-copy h2,.starter-copy h2 { font-size:clamp(2.2rem,4vw,3.5rem); line-height:1.08; }
-.section-heading p,.disciplines-copy>p,.starter-copy>p { color:var(--ink-soft); font-size:1.02rem; line-height:1.7; }
+.section-heading p,.disciplines-copy>p,.starter-copy>p { margin-top:clamp(10px,2vw,20px); color:var(--ink-soft); font-size:1.02rem; line-height:1.7; }
 .projects-placeholder { min-height:64vh; display:flex; align-items:center; }
 .projects-placeholder-icon { display:inline-grid; place-items:center; width:64px; height:64px; margin-bottom:22px; border-radius:18px; color:var(--purple); background:rgba(101,87,219,.12); }
 .projects-placeholder .section-heading p { margin:16px auto 30px; }
