@@ -27,7 +27,7 @@ export function AuthShell({
 				<div className="auth-story-copy">
 					{showJourneyTag ? (
 						<span className="auth-kicker">
-							<Sparkles size={15} /> Built for your final-year journey
+							<Sparkles size={15} /> Built for undergraduate students
 						</span>
 					) : null}
 					<h2>Move from a broad idea to a project you can defend.</h2>

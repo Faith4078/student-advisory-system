@@ -107,8 +107,8 @@ function Home() {
 							Thesisly is a searchable catalogue of the department's past
 							undergraduate projects, paired with an AI Academic Advisor that
 							only answers from what's actually in it. Every suggestion traces
-							back to a real project, not a guess, and it's built for every
-							undergraduate, not just final-year students.
+							back to a real project, not a guess, and it's built for
+							undergraduate students.
 						</p>
 						<div className="hero-actions">
 							<Link
@@ -127,7 +127,7 @@ function Home() {
 								<Check size={15} /> Grounded in real past projects
 							</span>
 							<span>
-								<Check size={15} /> Every level, not just final year
+								<Check size={15} /> Built for undergraduate students
 							</span>
 							<span>
 								<Check size={15} /> Free to explore
@@ -225,7 +225,7 @@ function Home() {
 						<span className="section-kicker">BUILT FOR EVERY LEVEL</span>
 						<h2>From your first course project to your final defense.</h2>
 						<p>
-							You don't need to be in your final year to use Thesisly. Browse
+							Thesisly is here for undergraduate students at every stage. Browse
 							the catalogue to see what previous students have built, ask the AI
 							Advisor to help you think through an idea, or upload a report of
 							your own so it becomes part of the record for students after you.
