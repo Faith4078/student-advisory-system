@@ -18,6 +18,8 @@ import { SiteHeader } from "../components/site-header";
 import { getSession } from "../lib/auth.functions";
 import { searchProjectsQuery } from "../lib/projects.functions";
 
+type ProjectSort = "relevance" | "newest" | "az" | "za";
+
 type ProjectsSearch = {
 	q?: string;
 	department?: string;
@@ -26,8 +28,16 @@ type ProjectsSearch = {
 	researchArea?: string;
 	technology?: string;
 	year?: number;
+	sort?: ProjectSort;
 	page: number;
 };
+
+const SORT_OPTIONS: Array<{ value: ProjectSort; label: string }> = [
+	{ value: "relevance", label: "Relevance" },
+	{ value: "newest", label: "Newest" },
+	{ value: "az", label: "A-Z" },
+	{ value: "za", label: "Z-A" },
+];
 
 function str(value: unknown) {
 	return typeof value === "string" && value.trim().length > 0
@@ -40,6 +50,13 @@ function num(value: unknown) {
 	return typeof n === "number" && Number.isInteger(n) ? n : undefined;
 }
 
+function sortValue(value: unknown): ProjectSort | undefined {
+	return typeof value === "string" &&
+		SORT_OPTIONS.some((option) => option.value === value)
+		? (value as ProjectSort)
+		: undefined;
+}
+
 function normalizeSearch(search: Record<string, unknown>): ProjectsSearch {
 	return {
 		q: str(search.q),
@@ -49,6 +66,7 @@ function normalizeSearch(search: Record<string, unknown>): ProjectsSearch {
 		researchArea: str(search.researchArea),
 		technology: str(search.technology),
 		year: num(search.year),
+		sort: sortValue(search.sort),
 		page: num(search.page) ?? 1,
 	};
 }
@@ -203,6 +221,22 @@ function ProjectsPage() {
 								placeholder="Search by title, abstract, keywords..."
 								aria-label="Search projects"
 							/>
+						</label>
+						<label className="projects-sort">
+							<span>Sort</span>
+							<select
+								value={search.sort ?? "relevance"}
+								onChange={(event) =>
+									setFilter("sort", event.target.value as ProjectSort)
+								}
+								aria-label="Sort projects"
+							>
+								{SORT_OPTIONS.map((option) => (
+									<option key={option.value} value={option.value}>
+										{option.label}
+									</option>
+								))}
+							</select>
 						</label>
 						<button
 							className="projects-filter-toggle"

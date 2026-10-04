@@ -1,10 +1,21 @@
 import { randomUUID } from "node:crypto";
-import { and, arrayContains, count, desc, eq, inArray, sql } from "drizzle-orm";
+import {
+	and,
+	arrayContains,
+	asc,
+	count,
+	desc,
+	eq,
+	inArray,
+	sql,
+} from "drizzle-orm";
 import { db } from "../db";
 import { document, project, projectChunk, projectLink } from "../db/schema";
 import { buildSearchCacheKey, cacheAside } from "./cache.server";
 import { reindexProjectChunks } from "./embedding-index.server";
 import { embedQuery, rerank } from "./jina.server";
+
+export type ProjectSortOption = "relevance" | "newest" | "az" | "za";
 
 export type ProjectSearchFilters = {
 	q?: string;
@@ -14,6 +25,7 @@ export type ProjectSearchFilters = {
 	researchArea?: string;
 	technology?: string;
 	year?: number;
+	sort?: ProjectSortOption;
 	page: number;
 	pageSize: number;
 };
@@ -110,8 +122,90 @@ function toVectorLiteral(vector: number[]): string {
 	return `[${vector.join(",")}]`;
 }
 
+// A small, explicit abbreviation/synonym dictionary for the lexical search
+// path only. Postgres full-text search has no built-in notion that "ML"
+// means "machine learning" — a custom thesaurus dictionary would need a
+// rules file placed on the database server's filesystem, which a managed,
+// serverless Postgres host (this project runs on Neon) does not expose, so
+// that route is not available here. Expanding known abbreviations in the
+// application layer before building the tsquery costs nothing (a plain
+// object lookup, no network call, no added latency) and keeps lexical
+// coverage from depending entirely on whether the embedding model happens
+// to treat a short, ambiguous acronym as similar to its expansion.
+const QUERY_SYNONYMS: Record<string, string[]> = {
+	ml: ["machine learning"],
+	ai: ["artificial intelligence"],
+	nlp: ["natural language processing"],
+	cv: ["computer vision"],
+	iot: ["internet of things"],
+	ui: ["user interface"],
+	ux: ["user experience"],
+	db: ["database"],
+	os: ["operating system"],
+	api: ["application programming interface"],
+	hci: ["human computer interaction"],
+	ar: ["augmented reality"],
+	vr: ["virtual reality"],
+	dl: ["deep learning"],
+	cnn: ["convolutional neural network"],
+	rnn: ["recurrent neural network"],
+	nn: ["neural network"],
+	devops: ["development operations"],
+};
+
+/**
+ * Expands recognised whole-word abbreviations in a free-text query into an
+ * OR'd set of alternatives for `websearch_to_tsquery`, so a bare acronym
+ * like "ML" also matches projects whose text spells out "machine learning"
+ * rather than depending solely on semantic embeddings to bridge the gap.
+ * Only whole tokens are matched — a substring like "ml" inside "html" is
+ * left untouched. The original query is always preserved as one of the
+ * disjuncts, so this only ever widens the lexical match, never narrows it.
+ */
+export function expandQuerySynonyms(query: string): string {
+	const tokens = query.trim().split(/\s+/).filter(Boolean);
+	const expansions = new Set<string>();
+	for (const token of tokens) {
+		const key = token.toLowerCase().replace(/[^a-z0-9]/g, "");
+		for (const synonym of QUERY_SYNONYMS[key] ?? []) {
+			expansions.add(synonym);
+		}
+	}
+	if (expansions.size === 0) return query;
+	return `${query} OR ${Array.from(expansions).join(" OR ")}`;
+}
+
+/**
+ * Replaces (not appends) recognised abbreviations with their expansion, for
+ * sending to the Jina reranker rather than to `websearch_to_tsquery`. The
+ * reranker is a neural cross-encoder, not a query parser — it has no notion
+ * of `websearch_to_tsquery`'s "OR" syntax, and empirically scores a query
+ * that mixes an acronym with its spelled-out form *lower* than the spelled-
+ * out form alone (verified against the real Jina API: "ML machine learning"
+ * scored every candidate lower than plain "machine learning" did). A query
+ * with no recognised abbreviation is returned unchanged.
+ */
+export function expandQueryForReranking(query: string): string {
+	const tokens = query.trim().split(/\s+/).filter(Boolean);
+	return tokens
+		.map((token) => {
+			const key = token.toLowerCase().replace(/[^a-z0-9]/g, "");
+			const [firstSynonym] = QUERY_SYNONYMS[key] ?? [];
+			return firstSynonym ?? token;
+		})
+		.join(" ");
+}
+
 const SEMANTIC_CANDIDATE_LIMIT = 40;
 const LEXICAL_CANDIDATE_LIMIT = 40;
+const FUZZY_CANDIDATE_LIMIT = 20;
+// pg_trgm similarity ranges 0 (no shared trigrams) to 1 (identical strings).
+// This is deliberately permissive compared to pg_trgm's own default (0.3):
+// an unambiguous single-letter typo in a longer title can still fall below
+// 0.3, and this candidate list is only ever a third input to RRF plus a
+// reranker pass, not a result on its own, so a looser net here is corrected
+// downstream rather than causing false positives.
+const MIN_TITLE_SIMILARITY = 0.2;
 const RERANK_TOP_N = 20;
 // Cosine distance ranges 0 (identical) to 2 (opposite); 1 is orthogonal
 // ("unrelated"). Candidates farther than this are not meaningfully related to
@@ -123,7 +217,13 @@ const SEMANTIC_DISTANCE_THRESHOLD = 0.6;
 // [0, 1]. A candidate the reranker itself scores below this bar is judged
 // irrelevant to the query and must be dropped, not merely reordered.
 const MIN_RERANK_SCORE = 0.3;
-const RETRIEVAL_VERSION = "hybrid-rrf-v1";
+// v2: candidate lists gained synonym-expanded lexical terms and fuzzy title
+// matches. v3: the reranker is now given the same abbreviation expansion
+// (e.g. "machine learning" instead of a bare "ML") rather than the raw
+// query, since it otherwise scores an unexpanded acronym too low against
+// every candidate to clear MIN_RERANK_SCORE. Each bump invalidates the
+// previous version's cached rankings rather than reusing them.
+const RETRIEVAL_VERSION = "hybrid-rrf-v3";
 const EMBEDDING_VERSION = "jina-embeddings-v3";
 const RERANKER_VERSION = "jina-reranker-v2-base-multilingual";
 
@@ -132,20 +232,49 @@ async function fetchLexicalCandidateIds(
 	query: string,
 	limit: number,
 ): Promise<string[]> {
+	const expandedQuery = expandQuerySynonyms(query);
 	const rows = await db
 		.select({ id: project.id })
 		.from(project)
 		.where(
 			and(
 				where,
-				sql`${project.searchVector} @@ websearch_to_tsquery('english', ${query})`,
+				sql`${project.searchVector} @@ websearch_to_tsquery('english', ${expandedQuery})`,
 			),
 		)
 		.orderBy(
 			desc(
-				sql`ts_rank(${project.searchVector}, websearch_to_tsquery('english', ${query}))`,
+				sql`ts_rank(${project.searchVector}, websearch_to_tsquery('english', ${expandedQuery}))`,
 			),
 		)
+		.limit(limit);
+	return rows.map((row) => row.id);
+}
+
+/**
+ * Trigram-similarity candidates against project titles only — the field
+ * where an unambiguous misspelling most plausibly still identifies a single
+ * intended project. Not a general-purpose fuzzy search over every field:
+ * trigram similarity over long free-text fields (abstract, methodology)
+ * produces too many coincidental matches to be useful as a relevance signal.
+ */
+async function fetchFuzzyTitleCandidateIds(
+	where: ReturnType<typeof and>,
+	query: string,
+	limit: number,
+): Promise<string[]> {
+	const similarity = sql<number>`similarity(${project.title}, ${query})`;
+	const rows = await db
+		.select({ id: project.id })
+		.from(project)
+		.where(
+			and(
+				where,
+				sql`${project.title} is not null`,
+				sql`${similarity} >= ${MIN_TITLE_SIMILARITY}`,
+			),
+		)
+		.orderBy(desc(similarity))
 		.limit(limit);
 	return rows.map((row) => row.id);
 }
@@ -179,10 +308,15 @@ async function fetchSemanticCandidateIds(
  */
 async function rankProjectsByQuery(
 	where: ReturnType<typeof and>,
-	filters: Omit<ProjectSearchFilters, "page" | "pageSize"> & { q: string },
+	filters: Omit<ProjectSearchFilters, "page" | "pageSize" | "sort"> & {
+		q: string;
+	},
 ): Promise<string[]> {
 	const cacheKey = buildSearchCacheKey({
 		query: filters.q,
+		// `sort` deliberately excluded by the parameter type above: it changes
+		// display order only, never which projects count as matches, so it
+		// must not fragment this cache.
 		filters: { ...filters, q: undefined },
 		// Ranking is independent of pagination — page/pageSize are fixed
 		// placeholders here so every page of the same query shares one cache
@@ -198,7 +332,7 @@ async function rankProjectsByQuery(
 		key: cacheKey,
 		ttlSeconds: 300,
 		compute: async () => {
-			const [lexicalIds, semanticIds] = await Promise.all([
+			const [lexicalIds, semanticIds, fuzzyIds] = await Promise.all([
 				fetchLexicalCandidateIds(where, filters.q, LEXICAL_CANDIDATE_LIMIT),
 				embedQuery(filters.q)
 					.then((vector) =>
@@ -213,9 +347,20 @@ async function rankProjectsByQuery(
 						);
 						return [] as string[];
 					}),
+				fetchFuzzyTitleCandidateIds(
+					where,
+					filters.q,
+					FUZZY_CANDIDATE_LIMIT,
+				).catch((error) => {
+					console.error(
+						"projects: fuzzy title candidate retrieval failed, continuing without it",
+						error,
+					);
+					return [] as string[];
+				}),
 			]);
 
-			const fused = reciprocalRankFusion([lexicalIds, semanticIds]);
+			const fused = reciprocalRankFusion([lexicalIds, semanticIds, fuzzyIds]);
 			const fusedIds = Array.from(fused.entries())
 				.sort((a, b) => b[1] - a[1])
 				.map(([id]) => id);
@@ -242,7 +387,10 @@ async function rankProjectsByQuery(
 					(row) =>
 						`${row.title ?? ""}\n${row.abstract ?? ""}`.trim() || "(untitled)",
 				);
-				const reranked = await rerank({ query: filters.q, documents });
+				const reranked = await rerank({
+					query: expandQueryForReranking(filters.q),
+					documents,
+				});
 
 				// Distinguish "the reranker scored this below the relevance bar"
 				// (drop it — it is not a match) from "the reranker didn't return a
@@ -276,11 +424,26 @@ async function rankProjectsByQuery(
 	});
 }
 
+/** `sort` column for a direct DB query; "relevance" has no DB-level meaning (it only makes sense relative to a query's rank order), so it falls back to newest-first, matching the no-query default. */
+function sortColumnFor(sort: ProjectSortOption | undefined) {
+	switch (sort) {
+		case "az":
+			return asc(project.title);
+		case "za":
+			return desc(project.title);
+		default:
+			return desc(project.publishedAt);
+	}
+}
+
 /**
  * Hybrid search over PUBLISHED projects: structured filters always apply;
- * a free-text query additionally ranks results via lexical + semantic
- * retrieval fused with RRF and reranked (see `rankProjectsByQuery`). With no
- * query, results are just filtered and sorted by recency.
+ * a free-text query additionally ranks results via lexical + semantic +
+ * fuzzy-title retrieval fused with RRF and reranked (see
+ * `rankProjectsByQuery`). With no query, results are just filtered and
+ * sorted. `sort` controls display order; with an active query it still only
+ * reorders the set of projects the query actually matched — it does not
+ * change which projects count as a match.
  */
 export async function searchProjects(filters: ProjectSearchFilters): Promise<{
 	items: ProjectSearchResultItem[];
@@ -289,15 +452,16 @@ export async function searchProjects(filters: ProjectSearchFilters): Promise<{
 	const structuredConditions = buildStructuredConditions(filters);
 	const where = and(...structuredConditions);
 	const query = filters.q?.trim();
+	const sort = filters.sort ?? "relevance";
+	const offset = (filters.page - 1) * filters.pageSize;
 
 	if (!query) {
-		const offset = (filters.page - 1) * filters.pageSize;
 		const [items, [{ count }]] = await Promise.all([
 			db
 				.select(PROJECT_SUMMARY_COLUMNS)
 				.from(project)
 				.where(where)
-				.orderBy(desc(project.publishedAt))
+				.orderBy(sortColumnFor(sort))
 				.limit(filters.pageSize)
 				.offset(offset),
 			db
@@ -308,24 +472,43 @@ export async function searchProjects(filters: ProjectSearchFilters): Promise<{
 		return { items: items.map(toSummary), totalCount: count };
 	}
 
-	const rankedIds = await rankProjectsByQuery(where, { ...filters, q: query });
-	const offset = (filters.page - 1) * filters.pageSize;
-	const pageIds = rankedIds.slice(offset, offset + filters.pageSize);
+	const { sort: _sort, ...rankingFilters } = filters;
+	const rankedIds = await rankProjectsByQuery(where, {
+		...rankingFilters,
+		q: query,
+	});
 
-	if (pageIds.length === 0) {
-		return { items: [], totalCount: rankedIds.length };
+	if (rankedIds.length === 0) {
+		return { items: [], totalCount: 0 };
 	}
 
+	if (sort === "relevance") {
+		const pageIds = rankedIds.slice(offset, offset + filters.pageSize);
+		if (pageIds.length === 0) {
+			return { items: [], totalCount: rankedIds.length };
+		}
+		const rows = await db
+			.select(PROJECT_SUMMARY_COLUMNS)
+			.from(project)
+			.where(inArray(project.id, pageIds));
+		const rowById = new Map(rows.map((row) => [row.id, row]));
+		const items = pageIds
+			.map((id) => rowById.get(id))
+			.filter((row): row is NonNullable<typeof row> => Boolean(row))
+			.map(toSummary);
+		return { items, totalCount: rankedIds.length };
+	}
+
+	// A non-relevance sort still uses the query to decide which projects
+	// match (rankedIds), but re-orders that matched set by the chosen field
+	// instead of by relevance rank, so pagination is applied after sorting
+	// rather than by slicing the rank-ordered id list.
 	const rows = await db
 		.select(PROJECT_SUMMARY_COLUMNS)
 		.from(project)
-		.where(inArray(project.id, pageIds));
-	const rowById = new Map(rows.map((row) => [row.id, row]));
-	const items = pageIds
-		.map((id) => rowById.get(id))
-		.filter((row): row is NonNullable<typeof row> => Boolean(row))
-		.map(toSummary);
-
+		.where(inArray(project.id, rankedIds))
+		.orderBy(sortColumnFor(sort));
+	const items = rows.slice(offset, offset + filters.pageSize).map(toSummary);
 	return { items, totalCount: rankedIds.length };
 }
 
@@ -676,6 +859,25 @@ export async function getPublicSourceDocument(projectId: string) {
 		.limit(1);
 	if (!row) return null;
 	return { ...row, createdAt: row.createdAt.toISOString() };
+}
+
+/**
+ * Internal only — the storage key is how a page-image rendering route (the
+ * only caller) fetches PDF bytes from R2 server-side; it must never be
+ * returned by a `createServerFn` the client can call directly, unlike
+ * `getPublicSourceDocument` above, which deliberately omits it. The
+ * student only ever receives rendered pixels for one page, never the key,
+ * the raw bytes, or a link to either.
+ */
+export async function getPublicSourceDocumentForRender(projectId: string) {
+	const owned = await getPublicProject(projectId);
+	if (!owned?.sourceDocumentId) return null;
+	const [row] = await db
+		.select({ storageKey: document.storageKey, pageCount: document.pageCount })
+		.from(document)
+		.where(eq(document.id, owned.sourceDocumentId))
+		.limit(1);
+	return row ?? null;
 }
 
 export type ProjectStatistics = {

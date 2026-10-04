@@ -65,9 +65,6 @@ function ProjectDetailPage() {
 					{project.abstract && (
 						<Section title="Abstract">
 							<p>{project.abstract}</p>
-							{project.abstractSource === "generated" && (
-								<span className="ai-generated-badge">AI-generated summary</span>
-							)}
 						</Section>
 					)}
 

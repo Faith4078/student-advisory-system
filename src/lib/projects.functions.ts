@@ -17,6 +17,7 @@ import {
 	listOwnedProjects,
 	type ProjectInput,
 	type ProjectLinkType,
+	type ProjectSortOption,
 	type ProjectStatus,
 	removeProjectLink,
 	searchProjects,
@@ -26,6 +27,7 @@ import {
 import { protectRequest } from "./security.server";
 
 const PAGE_SIZE = 12;
+const SORT_OPTIONS: ProjectSortOption[] = ["relevance", "newest", "az", "za"];
 
 export type ProjectsSearchInput = {
 	q?: string;
@@ -35,6 +37,7 @@ export type ProjectsSearchInput = {
 	researchArea?: string;
 	technology?: string;
 	year?: number;
+	sort?: ProjectSortOption;
 	page?: number;
 };
 
@@ -42,6 +45,12 @@ function cleanString(value: unknown) {
 	return typeof value === "string" && value.trim().length > 0
 		? value.trim()
 		: undefined;
+}
+
+function cleanSort(value: unknown): ProjectSortOption {
+	return typeof value === "string" && (SORT_OPTIONS as string[]).includes(value)
+		? (value as ProjectSortOption)
+		: "relevance";
 }
 
 export const searchProjectsQuery = createServerFn({ method: "GET" })
@@ -56,6 +65,7 @@ export const searchProjectsQuery = createServerFn({ method: "GET" })
 			typeof data.year === "number" && Number.isInteger(data.year)
 				? data.year
 				: undefined,
+		sort: cleanSort(data.sort),
 		page:
 			typeof data.page === "number" && data.page > 0
 				? Math.floor(data.page)

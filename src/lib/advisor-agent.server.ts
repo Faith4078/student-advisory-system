@@ -48,7 +48,16 @@ import {
 } from "./projects.server";
 
 const MODEL = process.env.GEMINI_MODEL || "gemini-3.8-flash";
-const MAX_TOOL_ITERATIONS = 4;
+// A "for each of these N projects, fetch X" follow-up needs roughly one
+// tool-call round per project before the model can even start synthesising
+// an answer. 4 was observed, live, to be too tight for exactly this
+// pattern with as few as 3 projects — the model would still be retrieving
+// when the loop gave up, producing a generic "couldn't settle on an answer"
+// reply despite having already found relevant evidence (visible in the
+// citations that still came through). 8 gives genuinely multi-project
+// questions room to complete without materially changing single-project
+// turns, which typically resolve in 1-2 iterations regardless.
+const MAX_TOOL_ITERATIONS = 8;
 
 let client: GoogleGenAI | null | undefined;
 function getClient(): GoogleGenAI | null {
@@ -233,7 +242,7 @@ const TOOL_DECLARATIONS: FunctionDeclaration[] = [
 	{
 		name: "remember_about_student",
 		description:
-			"Save a fact about this student for future conversations — call this whenever the student asks you to remember something, or states a lasting preference/fact unprompted (e.g. a project interest, a constraint, a correction to something you got wrong about them). If it conflicts with something already remembered, it replaces that memory rather than duplicating it, so this is also how you update a previously-remembered fact.",
+			"Save a fact about this student for future conversations. Call this immediately when the student explicitly asks you to remember something. If instead YOU notice a lasting preference or fact the student stated without asking you to save it (e.g. a project interest, a constraint, a correction to something you got wrong about them), do NOT call this yet — first ask the student, in one short sentence summarizing exactly what you'd save, whether they want it remembered, and only call this tool after they confirm. If it conflicts with something already remembered, it replaces that memory rather than duplicating it, so this is also how you update a previously-remembered fact.",
 		parameters: {
 			type: Type.OBJECT,
 			properties: {
@@ -450,10 +459,33 @@ discovery, scoping an idea, or general academic questions.
 Rules:
 - Ground every factual claim about a specific project in a tool call result
   — never invent a project, title, technology, or statistic.
-- If a tool finds nothing relevant, say so plainly rather than guessing.
+- This grounding requirement applies on EVERY turn, including follow-up
+  questions about a project you already discussed earlier in this same
+  conversation. The conversation history you see is only the text you
+  previously wrote, not the underlying tool results that supported it — so
+  if a follow-up asks for more or different specific detail about a project
+  (e.g. its limitations, after you already described its methodology), call
+  get_project or search_project_chunks again for that project before
+  answering. Do not answer from what you recall writing earlier; recalled
+  prose is not retrieved evidence, and extending it with new specifics you
+  did not just retrieve is exactly the kind of invention this rule exists
+  to prevent, however plausible it sounds.
+- If a tool finds nothing relevant, say so plainly rather than guessing. If
+  the student asked for a specific named section (e.g. "limitations",
+  "future work") and no retrieved chunk is clearly that section, say so
+  honestly rather than fabricating one — but don't just stop there: offer
+  whatever related content you *did* retrieve (e.g. results or conclusion
+  content that touches on the same thing) so the answer is still useful,
+  and be clear that it's a related excerpt, not the named section itself.
 - When discussing a specific project, call get_project or
   search_project_chunks first rather than relying on search_projects'
   short summaries alone.
+- When you use a passage from search_project_chunks, mention where it came
+  from in your own words where it's natural to do so (e.g. "in the
+  Methodology section" or "on page 7") using that chunk's section name
+  and/or page number — the student is reading your text, not the raw
+  citations list, so this is how they actually learn where in the report
+  something is, not just which project it's in.
 - Tool results include internal identifiers (fields like "id", "projectId",
   "chunkId", "documentId") — these exist ONLY so you can make follow-up tool
   calls (e.g. fetching more detail about a project you just found). NEVER
@@ -473,12 +505,18 @@ Rules:
 - You may also be given "Relevant memory about this student" — specific
   facts learned from earlier conversations. Use it to personalize your
   answer, but never present it as something you just looked up.
-- When the student asks you to remember, forget, or update a fact about
-  them, actually call remember_about_student or forget_about_student rather
-  than just replying as if you had — then confirm, briefly and specifically,
-  what you did (e.g. what was saved, or what was deleted and how many
-  matches were found). If forget_about_student finds nothing to delete, say
-  so rather than claiming success.`;
+- When the student explicitly asks you to remember, forget, or update a fact
+  about them, actually call remember_about_student or forget_about_student
+  rather than just replying as if you had — then confirm, briefly and
+  specifically, what you did (e.g. what was saved, or what was deleted and
+  how many matches were found). If forget_about_student finds nothing to
+  delete, say so rather than claiming success.
+- If the student instead merely states a lasting preference or fact in
+  passing, without asking you to save it, do not call remember_about_student
+  yet. First ask them directly, in one short summarized sentence (e.g. "Want
+  me to remember that you're interested in applying ML to agriculture for
+  future conversations?"), and only save it if they say yes. Never save an
+  inferred fact silently.`;
 
 function formatStudentProfileBlock(profile: ProfileDetails): string {
 	const matricNumber = profile.displayUsername || profile.username || "not set";
@@ -497,6 +535,32 @@ export type AdvisorStreamEvent =
 	| { type: "delta"; text: string }
 	| { type: "done"; fullText: string; citations: AdvisorCitation[] }
 	| { type: "error"; message: string };
+
+/**
+ * The message shown when the tool-calling loop exhausts MAX_TOOL_ITERATIONS
+ * without the model producing a final answer. Names whatever projects were
+ * actually found before the cap hit (if any) instead of a content-free
+ * apology, since the whole point of resolving citations server-side is that
+ * this list is always genuinely retrieved evidence, never invented.
+ */
+function buildIterationLimitMessage(citations: AdvisorCitation[]): string {
+	const titles = Array.from(
+		new Set(
+			citations
+				.filter(
+					(citation) =>
+						citation.type === "project" || citation.type === "chunk",
+				)
+				.map((citation) => citation.title)
+				.filter((title): title is string => Boolean(title)),
+		),
+	);
+	if (titles.length === 0) {
+		return "I wasn't able to put together a complete answer to that in the time I had — could you narrow your question, for example to one project at a time?";
+	}
+	const titleList = titles.map((title) => `- ${title}`).join("\n");
+	return `I found relevant information across several projects but ran out of turns before I could finish pulling it all together into one answer. Here's what I was retrieving evidence from:\n${titleList}\n\nTry asking about one of these at a time (for example, just its methodology or results) and I can go into full detail.`;
+}
 
 /**
  * Runs one advisor turn as a stream: recalls relevant memory, runs the
@@ -700,8 +764,12 @@ export async function* streamAdvisorAgent(input: {
 
 		yield {
 			type: "done",
-			fullText:
-				"I looked into several angles on this but couldn't settle on a final answer in time — could you narrow your question a bit?",
+			// Even the "I ran out of turns" case stays grounded: if tool calls
+			// already turned up relevant projects before the iteration cap hit,
+			// say so by name and suggest a narrower follow-up, rather than a
+			// generic non-answer that throws away evidence the student can see
+			// sitting right there in the citations list.
+			fullText: buildIterationLimitMessage(allCitations),
 			citations: allCitations,
 		};
 	} catch (error) {

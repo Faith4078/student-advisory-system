@@ -64,6 +64,13 @@
       "when": 1790801474359,
       "tag": "0008_eager_nova",
       "breakpoints": true
+    },
+    {
+      "idx": 9,
+      "version": "7",
+      "when": 1791109443130,
+      "tag": "0009_lexical_trgm_fix",
+      "breakpoints": true
     }
   ]
 }

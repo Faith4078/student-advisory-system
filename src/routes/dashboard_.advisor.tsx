@@ -14,6 +14,7 @@ import {
 	Send,
 	Sparkles,
 	Trash2,
+	X,
 } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import ReactMarkdown from "react-markdown";
@@ -105,6 +106,13 @@ function AdvisorPage() {
 	const [prompt, setPrompt] = useState("");
 	const [renamingId, setRenamingId] = useState<string | null>(null);
 	const [draftTitle, setDraftTitle] = useState("");
+	// The one cited page currently shown inline, if any — only ever one at a
+	// time, toggled open/closed by clicking its "p. N" chip in a message's
+	// Sources list (see the image panel rendered just below that list).
+	const [openPage, setOpenPage] = useState<{
+		projectId: string;
+		pageNumber: number;
+	} | null>(null);
 	const [displayMessages, setDisplayMessages] =
 		useState<ChatMessage[]>(messages);
 	const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -452,17 +460,52 @@ function AdvisorPage() {
 							) : (
 								displayMessages.map((message, index) => {
 									const projectSources = Array.from(
-										new Map(
-											(message.sources ?? [])
-												.filter((source) => source.projectId)
-												.map((source) => [
-													source.projectId,
+										(message.sources ?? [])
+											.filter((source) => source.projectId)
+											.reduce(
+												(map, source) => {
+													const projectId = source.projectId as string;
+													const existing = map.get(projectId) ?? {
+														id: projectId,
+														title: source.title ?? null,
+														pages: [] as Array<{
+															pageNumber: number;
+															sectionTitle: string | null;
+														}>,
+													};
+													if (!existing.title && source.title) {
+														existing.title = source.title;
+													}
+													// Chunk-level citations carry a section/page
+													// location; project-level ones don't — only the former
+													// lets the student open the exact cited page inline.
+													if (
+														source.pageNumber &&
+														!existing.pages.some(
+															(p) => p.pageNumber === source.pageNumber,
+														)
+													) {
+														existing.pages.push({
+															pageNumber: source.pageNumber,
+															sectionTitle: source.sectionTitle ?? null,
+														});
+													}
+													map.set(projectId, existing);
+													return map;
+												},
+												new Map<
+													string,
 													{
-														id: source.projectId as string,
-														title: source.title,
-													},
-												]),
-										).values(),
+														id: string;
+														title: string | null;
+														pages: Array<{
+															pageNumber: number;
+															sectionTitle: string | null;
+														}>;
+													}
+												>(),
+											)
+											.values(),
 									);
 									const isStreamingPlaceholder =
 										pending &&
@@ -507,17 +550,77 @@ function AdvisorPage() {
 													<div className="advisor-message-sources">
 														<span>Sources:</span>
 														{projectSources.map((source) => (
-															<Link
-																key={source.id}
-																to="/projects/$projectId"
-																params={{ projectId: source.id }}
-																target="_blank"
-															>
-																{source.title || "View project"}
-															</Link>
+															<span className="advisor-source" key={source.id}>
+																<Link
+																	to="/projects/$projectId"
+																	params={{ projectId: source.id }}
+																	target="_blank"
+																>
+																	{source.title || "View project"}
+																</Link>
+																{source.pages.length > 0 && (
+																	<span className="advisor-source-pages">
+																		{source.pages.map((page) => {
+																			const isOpen =
+																				openPage?.projectId === source.id &&
+																				openPage.pageNumber === page.pageNumber;
+																			return (
+																				<button
+																					type="button"
+																					key={page.pageNumber}
+																					className={
+																						isOpen
+																							? "advisor-page-chip is-open"
+																							: "advisor-page-chip"
+																					}
+																					title={page.sectionTitle ?? undefined}
+																					onClick={() =>
+																						setOpenPage(
+																							isOpen
+																								? null
+																								: {
+																										projectId: source.id,
+																										pageNumber: page.pageNumber,
+																									},
+																						)
+																					}
+																				>
+																					p. {page.pageNumber}
+																				</button>
+																			);
+																		})}
+																	</span>
+																)}
+															</span>
 														))}
 													</div>
 												)}
+												{openPage &&
+													projectSources.some(
+														(source) =>
+															source.id === openPage?.projectId &&
+															source.pages.some(
+																(page) =>
+																	page.pageNumber === openPage?.pageNumber,
+															),
+													) && (
+														<div className="advisor-page-preview">
+															<div className="advisor-page-preview-head">
+																<span>Page {openPage.pageNumber}</span>
+																<button
+																	type="button"
+																	onClick={() => setOpenPage(null)}
+																	aria-label="Close page preview"
+																>
+																	<X size={15} />
+																</button>
+															</div>
+															<img
+																src={`/api/projects/${openPage.projectId}/pages/${openPage.pageNumber}`}
+																alt={`Page ${openPage.pageNumber} of the cited report`}
+															/>
+														</div>
+													)}
 											</div>
 										</article>
 									);
