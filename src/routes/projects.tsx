@@ -151,18 +151,15 @@ function ProjectsPage() {
 		navigate({ search: nextSearch, replace: true });
 	}
 
-	// biome-ignore lint/correctness/useExhaustiveDependencies: debounce timer should only reset when the draft text changes, not on every preloadAndNavigate/search.q identity change
-	useEffect(() => {
-		const timer = setTimeout(() => {
-			if ((search.q ?? "") === queryDraft.trim()) return;
-			preloadAndNavigate({
-				...search,
-				q: queryDraft.trim() || undefined,
-				page: 1,
-			});
-		}, 350);
-		return () => clearTimeout(timer);
-	}, [queryDraft]);
+	function submitSearch() {
+		const trimmed = queryDraft.trim();
+		if ((search.q ?? "") === trimmed) return;
+		preloadAndNavigate({
+			...search,
+			q: trimmed || undefined,
+			page: 1,
+		});
+	}
 
 	function setFilter(
 		key: keyof ProjectsSearch,
@@ -207,8 +204,7 @@ function ProjectsPage() {
 					<div className="projects-heading">
 						<h1>Explore student projects</h1>
 						<p>
-							Search and filter published final-year and SIWES projects from
-							across departments.
+							Search and filter published projects from across departments.
 						</p>
 					</div>
 
@@ -218,6 +214,12 @@ function ProjectsPage() {
 							<input
 								value={queryDraft}
 								onChange={(event) => setQueryDraft(event.target.value)}
+								onKeyDown={(event) => {
+									if (event.key === "Enter") {
+										event.preventDefault();
+										submitSearch();
+									}
+								}}
 								placeholder="Search by title, abstract, keywords..."
 								aria-label="Search projects"
 							/>

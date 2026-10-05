@@ -18,6 +18,7 @@ export type ProjectFormValues = {
 	conclusion: string;
 	projectYear: string;
 	abstract: string;
+	allowDownload: boolean;
 };
 
 export const EMPTY_PROJECT_FORM: ProjectFormValues = {
@@ -36,6 +37,7 @@ export const EMPTY_PROJECT_FORM: ProjectFormValues = {
 	conclusion: "",
 	projectYear: "",
 	abstract: "",
+	allowDownload: false,
 };
 
 export function projectToFormValues(source: {
@@ -54,6 +56,7 @@ export function projectToFormValues(source: {
 	conclusion: string | null;
 	projectYear: number | null;
 	abstract: string | null;
+	allowDownload: boolean;
 }): ProjectFormValues {
 	return {
 		title: source.title ?? "",
@@ -71,6 +74,7 @@ export function projectToFormValues(source: {
 		conclusion: source.conclusion ?? "",
 		projectYear: source.projectYear ? String(source.projectYear) : "",
 		abstract: source.abstract ?? "",
+		allowDownload: source.allowDownload,
 	};
 }
 
@@ -91,6 +95,7 @@ export function formValuesToInput(values: ProjectFormValues) {
 		conclusion: values.conclusion,
 		projectYear: values.projectYear ? Number(values.projectYear) : null,
 		abstract: values.abstract,
+		allowDownload: values.allowDownload,
 	};
 }
 
@@ -345,6 +350,23 @@ export function ProjectForm({
 				onChange={(value) => set("technologies", value)}
 				placeholder="Add a technology"
 			/>
+
+			<div className="form-field form-field-checkbox">
+				<label htmlFor="pf-allow-download">
+					<input
+						id="pf-allow-download"
+						type="checkbox"
+						checked={values.allowDownload}
+						onChange={(event) => set("allowDownload", event.target.checked)}
+					/>
+					Allow other students to download the full report PDF
+				</label>
+				<p className="form-field-hint">
+					Off by default. Either way, the AI Advisor and other students can
+					still view cited pages of your report inline — this only controls
+					whether they can save a copy of the full file.
+				</p>
+			</div>
 		</div>
 	);
 }

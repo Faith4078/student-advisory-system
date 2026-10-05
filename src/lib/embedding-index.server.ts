@@ -8,6 +8,7 @@ import {
 	projectFieldsToChunkSources,
 } from "./chunking.server";
 import { embedPassages, embedPassagesLateChunked } from "./jina.server";
+import { estimateChunkPageNumbers } from "./pdf-text.server";
 
 export type ProjectChunkFields = {
 	abstract?: string | null;
@@ -40,11 +41,35 @@ export async function reindexProjectChunks(input: {
 	pageNumber: number | null;
 	fields: ProjectChunkFields;
 	fullText?: string | null;
+	pdfBytes?: Buffer | null;
+	pageRangeStart?: number | null;
+	pageRangeEnd?: number | null;
 }): Promise<{ chunkCount: number }> {
 	const usingFullText = Boolean(input.fullText?.trim());
 	const drafts = usingFullText
 		? buildFullTextChunkDrafts(input.fullText as string)
 		: buildProjectChunkDrafts(projectFieldsToChunkSources(input.fields));
+
+	// Each chunk's pageNumber is independently estimated from the real PDF's
+	// text when possible (see estimateChunkPageNumbers in pdf-text.server.ts)
+	// instead of stamped with the project's first page for every chunk — a
+	// full-text chunk from late in a multi-page project otherwise cited the
+	// wrong page. Falls back to `pageNumber` for every chunk when PDF bytes
+	// or the page range aren't available (manually entered projects), or if
+	// extraction fails.
+	const pageNumbers =
+		usingFullText &&
+		input.pdfBytes &&
+		input.pageRangeStart != null &&
+		input.pageRangeEnd != null
+			? await estimateChunkPageNumbers({
+					pdfBytes: input.pdfBytes,
+					pageRangeStart: input.pageRangeStart,
+					pageRangeEnd: input.pageRangeEnd,
+					chunkContents: drafts.map((draft) => draft.content),
+					fallbackPageNumber: input.pageNumber,
+				})
+			: drafts.map(() => input.pageNumber);
 
 	await db
 		.delete(projectChunk)
@@ -72,7 +97,7 @@ export async function reindexProjectChunks(input: {
 			projectId: input.projectId,
 			documentId: input.documentId,
 			chunkIndex: index,
-			pageNumber: input.pageNumber,
+			pageNumber: pageNumbers[index] ?? null,
 			sectionTitle: draft.sectionTitle,
 			content: draft.content,
 			embedding: embeddings[index],

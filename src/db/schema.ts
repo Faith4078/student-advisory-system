@@ -290,6 +290,12 @@ export const project = pgTable(
 		status: projectStatusEnum("status").notNull().default("draft"),
 		publishedAt: timestamp("published_at"),
 
+		// Author-controlled: whether other students may download this
+		// project's full source PDF. Off by default — the report can always
+		// be viewed inline (e.g. the AI Advisor's cited-page viewer), but
+		// saving a copy requires the author's explicit opt-in.
+		allowDownload: boolean("allow_download").notNull().default(false),
+
 		// Lexical search vector for fast project-level filtering on /projects,
 		// independent of the deeper chunk-level hybrid retrieval. Populated by
 		// a BEFORE INSERT/UPDATE trigger (see the migration), not a generated

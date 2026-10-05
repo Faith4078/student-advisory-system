@@ -166,6 +166,7 @@ export type AdvisorCitation = {
 	pageNumber?: number | null;
 	sectionTitle?: string | null;
 	title?: string | null;
+	allowDownload?: boolean;
 };
 
 type ToolResult = { output: unknown; citations: AdvisorCitation[] };
@@ -383,6 +384,7 @@ async function runToolUncached(
 					pageNumber: hit.pageNumber,
 					sectionTitle: hit.sectionTitle,
 					title: hit.projectTitle,
+					allowDownload: hit.allowDownload,
 				})),
 			};
 		}
@@ -392,7 +394,14 @@ async function runToolUncached(
 			if (!doc) return { output: { found: false }, citations: [] };
 			return {
 				output: { found: true, document: doc },
-				citations: [{ type: "document", projectId, documentId: doc.id }],
+				citations: [
+					{
+						type: "document",
+						projectId,
+						documentId: doc.id,
+						allowDownload: doc.allowDownload,
+					},
+				],
 			};
 		}
 		case "get_project_links": {
@@ -480,6 +489,19 @@ Rules:
 - When discussing a specific project, call get_project or
   search_project_chunks first rather than relying on search_projects'
   short summaries alone.
+- If the student asks for a deep dive on "a project" about some topic (not a
+  project they've named), and your search turns up more than one project that
+  plausibly matches, do not pick one yourself and dive in. List the matching
+  titles and ask which one they want to start with — don't call get_project or
+  search_project_chunks for any of them yet. Once they pick one, deep-dive into
+  that project only and cite only it, not the siblings you merely listed. If
+  they then say something like "the next one" or "what about the other one",
+  move on to the next candidate from that same list the same way: deep-dive
+  into it alone and cite only it.
+- This disambiguation does not apply when the student already names specific
+  projects (e.g. "I read about Project A and Project B") — look up exactly the
+  projects they named and answer about them directly; citing exactly those is
+  correct, since that is what they actually asked about.
 - When you use a passage from search_project_chunks, mention where it came
   from in your own words where it's natural to do so (e.g. "in the
   Methodology section" or "on page 7") using that chunk's section name

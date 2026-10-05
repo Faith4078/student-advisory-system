@@ -184,6 +184,7 @@ type ProjectInputPayload = Partial<{
 	conclusion: unknown;
 	projectYear: unknown;
 	abstract: unknown;
+	allowDownload: unknown;
 }>;
 
 function normalizeProjectInput(data: ProjectInputPayload): ProjectInput {
@@ -207,6 +208,7 @@ function normalizeProjectInput(data: ProjectInputPayload): ProjectInput {
 		conclusion: cleanOptionalString(data.conclusion, 4000),
 		projectYear: year && year >= 1990 && year <= 2100 ? year : null,
 		abstract: cleanOptionalString(data.abstract, 2000),
+		allowDownload: data.allowDownload === true,
 	};
 }
 

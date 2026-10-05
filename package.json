@@ -43,6 +43,7 @@
     "mem0ai": "^3.3.1",
     "nitro": "3.0.260610-beta",
     "pdf-to-png-converter": "^4.2.1",
+    "pdfjs-dist": "6.2.108",
     "postgres": "^3.4.9",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

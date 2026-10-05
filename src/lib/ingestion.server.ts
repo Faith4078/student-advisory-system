@@ -181,6 +181,9 @@ export async function processDocument(input: {
 					projectId: id,
 					documentId: doc.id,
 					pageNumber: draft.sourcePageRangeStart,
+					pdfBytes: fileBytes,
+					pageRangeStart: draft.sourcePageRangeStart,
+					pageRangeEnd: draft.sourcePageRangeEnd,
 					fields: {
 						abstract: draft.abstract,
 						problemStatement: draft.problemStatement,

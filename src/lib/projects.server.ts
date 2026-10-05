@@ -14,6 +14,7 @@ import { document, project, projectChunk, projectLink } from "../db/schema";
 import { buildSearchCacheKey, cacheAside } from "./cache.server";
 import { reindexProjectChunks } from "./embedding-index.server";
 import { embedQuery, rerank } from "./jina.server";
+import { downloadBuffer } from "./storage.server";
 
 export type ProjectSortOption = "relevance" | "newest" | "az" | "za";
 
@@ -606,6 +607,7 @@ export type ProjectInput = {
 	conclusion: string | null;
 	projectYear: number | null;
 	abstract: string | null;
+	allowDownload: boolean;
 };
 
 const PROJECT_STATUSES = [
@@ -638,6 +640,7 @@ export async function createManualProject(
 		conclusion: input.conclusion,
 		projectYear: input.projectYear,
 		abstract: input.abstract,
+		allowDownload: input.allowDownload,
 		status: "draft",
 	});
 	await reindexProjectChunks({
@@ -700,6 +703,7 @@ export async function updateProject(
 		.returning({
 			sourceDocumentId: project.sourceDocumentId,
 			sourcePageRangeStart: project.sourcePageRangeStart,
+			sourcePageRangeEnd: project.sourcePageRangeEnd,
 			abstract: project.abstract,
 			problemStatement: project.problemStatement,
 			objectives: project.objectives,
@@ -709,6 +713,30 @@ export async function updateProject(
 			fullText: project.fullText,
 		});
 	if (!updated) return;
+
+	// Re-download the source PDF so chunks keep accurate per-chunk page
+	// numbers after an edit (see estimateChunkPageNumbers in
+	// pdf-text.server.ts) — best-effort: a download failure just falls back
+	// to the project's first page for every chunk, same as before this was
+	// added, rather than blocking the save.
+	let pdfBytes: Buffer | null = null;
+	if (updated.sourceDocumentId) {
+		try {
+			const [doc] = await db
+				.select({ storageKey: document.storageKey })
+				.from(document)
+				.where(eq(document.id, updated.sourceDocumentId))
+				.limit(1);
+			if (doc) pdfBytes = await downloadBuffer({ key: doc.storageKey });
+		} catch (error) {
+			console.error(
+				"updateProject: failed to re-download source PDF for page-accurate chunking",
+				projectId,
+				error,
+			);
+		}
+	}
+
 	// Pass fullText through so editing an AI-extracted project's fields (e.g.
 	// correcting the abstract) re-chunks from its full verbatim source text
 	// again, rather than silently dropping back to the shorter structured-
@@ -717,6 +745,9 @@ export async function updateProject(
 		projectId,
 		documentId: updated.sourceDocumentId,
 		pageNumber: updated.sourcePageRangeStart,
+		pdfBytes,
+		pageRangeStart: updated.sourcePageRangeStart,
+		pageRangeEnd: updated.sourcePageRangeEnd,
 		fields: updated,
 		fullText: updated.fullText,
 	});
@@ -858,7 +889,11 @@ export async function getPublicSourceDocument(projectId: string) {
 		.where(eq(document.id, owned.sourceDocumentId))
 		.limit(1);
 	if (!row) return null;
-	return { ...row, createdAt: row.createdAt.toISOString() };
+	return {
+		...row,
+		createdAt: row.createdAt.toISOString(),
+		allowDownload: owned.allowDownload,
+	};
 }
 
 /**
@@ -873,11 +908,16 @@ export async function getPublicSourceDocumentForRender(projectId: string) {
 	const owned = await getPublicProject(projectId);
 	if (!owned?.sourceDocumentId) return null;
 	const [row] = await db
-		.select({ storageKey: document.storageKey, pageCount: document.pageCount })
+		.select({
+			storageKey: document.storageKey,
+			pageCount: document.pageCount,
+			fileName: document.fileName,
+		})
 		.from(document)
 		.where(eq(document.id, owned.sourceDocumentId))
 		.limit(1);
-	return row ?? null;
+	if (!row) return null;
+	return { ...row, allowDownload: owned.allowDownload };
 }
 
 export type ProjectStatistics = {
@@ -935,6 +975,7 @@ export type ProjectChunkHit = {
 	projectTitle: string | null;
 	sectionTitle: string | null;
 	pageNumber: number | null;
+	allowDownload: boolean;
 	content: string;
 	score: number;
 };
@@ -963,6 +1004,7 @@ export async function searchProjectChunks(input: {
 			projectTitle: project.title,
 			sectionTitle: projectChunk.sectionTitle,
 			pageNumber: projectChunk.pageNumber,
+			allowDownload: project.allowDownload,
 			content: projectChunk.content,
 			distance,
 		})
@@ -984,6 +1026,7 @@ export async function searchProjectChunks(input: {
 		projectTitle: row.projectTitle,
 		sectionTitle: row.sectionTitle,
 		pageNumber: row.pageNumber,
+		allowDownload: row.allowDownload,
 		content: row.content,
 		// Cosine distance -> similarity in [0,1], clamped: negative distances
 		// (numerically possible at the float boundary) would otherwise print

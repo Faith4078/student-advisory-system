@@ -1,0 +1,1 @@
+ALTER TABLE "project" ADD COLUMN "allow_download" boolean DEFAULT false NOT NULL;

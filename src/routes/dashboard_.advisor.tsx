@@ -7,6 +7,7 @@ import {
 import { useServerFn } from "@tanstack/react-start";
 import {
 	Bot,
+	Download,
 	MessageSquareText,
 	PanelLeft,
 	Pencil,
@@ -468,6 +469,7 @@ function AdvisorPage() {
 													const existing = map.get(projectId) ?? {
 														id: projectId,
 														title: source.title ?? null,
+														allowDownload: false,
 														pages: [] as Array<{
 															pageNumber: number;
 															sectionTitle: string | null;
@@ -475,6 +477,9 @@ function AdvisorPage() {
 													};
 													if (!existing.title && source.title) {
 														existing.title = source.title;
+													}
+													if (source.allowDownload) {
+														existing.allowDownload = true;
 													}
 													// Chunk-level citations carry a section/page
 													// location; project-level ones don't — only the former
@@ -498,6 +503,7 @@ function AdvisorPage() {
 													{
 														id: string;
 														title: string | null;
+														allowDownload: boolean;
 														pages: Array<{
 															pageNumber: number;
 															sectionTitle: string | null;
@@ -596,31 +602,49 @@ function AdvisorPage() {
 													</div>
 												)}
 												{openPage &&
-													projectSources.some(
-														(source) =>
-															source.id === openPage?.projectId &&
-															source.pages.some(
-																(page) =>
-																	page.pageNumber === openPage?.pageNumber,
-															),
-													) && (
-														<div className="advisor-page-preview">
-															<div className="advisor-page-preview-head">
-																<span>Page {openPage.pageNumber}</span>
-																<button
-																	type="button"
-																	onClick={() => setOpenPage(null)}
-																	aria-label="Close page preview"
-																>
-																	<X size={15} />
-																</button>
+													(() => {
+														const openSource = projectSources.find(
+															(source) =>
+																source.id === openPage?.projectId &&
+																source.pages.some(
+																	(page) =>
+																		page.pageNumber === openPage?.pageNumber,
+																),
+														);
+														if (!openSource) return null;
+														return (
+															<div className="advisor-page-preview">
+																<div className="advisor-page-preview-head">
+																	<span>Page {openPage.pageNumber}</span>
+																	<div className="advisor-page-preview-actions">
+																		{openSource.allowDownload && (
+																			<a
+																				href={`/api/projects/${openPage.projectId}/document?download=1`}
+																				target="_blank"
+																				rel="noreferrer"
+																				className="advisor-page-download"
+																			>
+																				<Download size={14} /> Download PDF
+																			</a>
+																		)}
+																		<button
+																			type="button"
+																			onClick={() => setOpenPage(null)}
+																			aria-label="Close document preview"
+																		>
+																			<X size={15} />
+																		</button>
+																	</div>
+																</div>
+																<iframe
+																	key={`${openPage.projectId}-${openPage.pageNumber}`}
+																	src={`/api/projects/${openPage.projectId}/document#page=${openPage.pageNumber}`}
+																	title={`Cited report, page ${openPage.pageNumber}`}
+																	className="advisor-page-preview-frame"
+																/>
 															</div>
-															<img
-																src={`/api/projects/${openPage.projectId}/pages/${openPage.pageNumber}`}
-																alt={`Page ${openPage.pageNumber} of the cited report`}
-															/>
-														</div>
-													)}
+														);
+													})()}
 											</div>
 										</article>
 									);

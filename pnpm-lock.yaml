@@ -77,6 +77,9 @@ importers:
       pdf-to-png-converter:
         specifier: ^4.2.1
         version: 4.2.1
+      pdfjs-dist:
+        specifier: 6.2.108
+        version: 6.2.108
       postgres:
         specifier: ^3.4.9
         version: 3.4.9
