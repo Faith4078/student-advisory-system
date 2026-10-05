@@ -13,7 +13,10 @@ import {
 	UserRound,
 } from "lucide-react";
 import { useState } from "react";
-import { DashboardSidebar, DashboardTopbar } from "../components/dashboard-shell";
+import {
+	DashboardSidebar,
+	DashboardTopbar,
+} from "../components/dashboard-shell";
 import { getSession } from "../lib/auth.functions";
 
 export const Route = createFileRoute("/dashboard")({
@@ -110,31 +113,14 @@ function DashboardPage() {
 								you’re working with. We’ll use it to shape focused topic
 								directions.
 							</p>
-							<button type="button">
+							<Link to="/dashboard/profile">
 								Complete my profile <ArrowRight size={17} />
-							</button>
+							</Link>
 						</div>
-						<div
-							className="dashboard-progress-visual"
-							role="progressbar"
-							aria-label="Profile completion"
-							aria-valuenow={20}
-							aria-valuemin={0}
-							aria-valuemax={100}
-						>
-							<div className="progress-ring">
-								<strong>20%</strong>
-								<span>complete</span>
-							</div>
+						<div className="dashboard-progress-visual">
 							<div className="progress-steps">
 								<span className="done">
 									<CheckCircle2 size={16} /> Account created
-								</span>
-								<span>
-									<i className="step-dot" /> Research interests
-								</span>
-								<span>
-									<i className="step-dot" /> Project constraints
 								</span>
 							</div>
 						</div>

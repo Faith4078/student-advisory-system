@@ -291,15 +291,11 @@ input { font:inherit; }
 .dashboard-hero-kicker { display:flex; align-items:center; gap:7px; color:#146ef5; font-size:.62rem; font-weight:800; letter-spacing:.12em; }
 .dashboard-hero-copy h2 { margin-top:14px; font-size:clamp(1.65rem,2.8vw,2.45rem); }
 .dashboard-hero-copy p { max-width:620px; margin:14px 0 21px; color:#66768d; font-size:.83rem; line-height:1.65; }
-.dashboard-hero-copy button { height:42px; display:flex; align-items:center; gap:8px; padding:0 15px; border:0; border-radius:8px; color:#fff; background:#15213a; font-size:.72rem; font-weight:700; }
+.dashboard-hero-copy button, .dashboard-hero-copy a { height:42px; display:flex; align-items:center; gap:8px; padding:0 15px; border:0; border-radius:8px; color:#fff; background:#15213a; font-size:.72rem; font-weight:700; width:fit-content; text-decoration:none; }
 .dashboard-progress-visual { position:relative; z-index:1; display:flex; align-items:center; justify-content:center; gap:30px; padding:28px 35px; }
-.progress-ring { width:124px; height:124px; flex:0 0 auto; display:grid; align-content:center; justify-items:center; border-radius:50%; background:radial-gradient(closest-side,#fff 77%,transparent 78% 99%),conic-gradient(#146ef5 20%,#dce6f4 0); box-shadow:0 8px 25px rgba(28,75,140,.1); }
-.progress-ring strong { font:800 1.55rem var(--font-display); }
-.progress-ring span { color:#8d97a7; font-size:.62rem; }
 .progress-steps { display:grid; gap:13px; }
 .progress-steps>span { display:flex; align-items:center; gap:8px; color:#768397; font-size:.69rem; }
 .progress-steps .done { color:#237954; font-weight:700; }
-.step-dot { width:15px; height:15px; display:block; border:2px solid #cbd4e1; border-radius:50%; }
 .dashboard-metrics { display:grid; grid-template-columns:repeat(3,1fr); gap:15px; margin:18px 0; }
 .dashboard-metrics article { display:flex; align-items:center; gap:14px; min-height:110px; padding:21px; border:1px solid #e2e6ee; border-radius:12px; background:#fff; }
 .metric-icon { width:43px; height:43px; flex:0 0 auto; display:grid; place-items:center; border-radius:11px; }
