@@ -322,13 +322,3 @@ directory to your host and run the command above. For host-specific
 presets (Vercel, Netlify, Cloudflare, AWS Lambda, etc.), see
 [the Nitro deployment docs](https://v3.nitro.build/deploy).
 
-## Documentation
-
-The `docs/` directory holds the project's full academic documentation:
-
-- `project_advisory_thesis_revised.tex` — the complete thesis.
-- `presentation-slide.tex` — the timed defense presentation.
-- `evaluation-metrics-explainer.tex` — the formula and worked numbers
-  behind every evaluation metric.
-- `methodology-explainer.tex` — a plain-language walkthrough of the
-  architecture, written for defending the design decisions confidently.
